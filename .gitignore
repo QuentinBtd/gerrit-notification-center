@@ -1,0 +1,9 @@
+/build/
+/dist/
+/node_modules/
+/bazel-*
+*.mv.db
+*.trace.db
+/user.bazelrc
+__pycache__/
+*.pyc

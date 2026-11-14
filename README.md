@@ -1,0 +1,110 @@
+# Gerrit Notification Center
+
+Persistent, per-account notifications for Gerrit, without modifying Gerrit Core.
+Java 21 backend, embedded H2, TypeScript PolyGerrit UI. Apache-2.0; bundled H2 is
+MPL-2.0/EPL-1.0 (license included).
+
+**Unreleased MVP candidate.** Native compilation and in-process acceptance have been
+executed against Gerrit **3.14.4**, **3.13.10**, **3.12.11**. This is not yet a claim of
+production support: canonical Bazel execution, packaged-plugin loading and a real
+PolyGerrit browser journey remain qualification gates. See [compatibility](docs/compatibility.md).
+
+## Features
+
+- Persistent Inbox, unread count, read/unread, archive and mark-all-read.
+- Reviewer added, explicit mentions, relevant comments, new patchsets, merged and abandoned.
+- Owner/current reviewers are followed accounts; mentions can target other registered users.
+- Keyset pagination, state/type filters, recipient-scoped deduplication and retention.
+- Authenticated own-account REST API. Live Change READ permission checks also protect counts
+  and mutations after access is revoked.
+- Full Notifications screen under `/x/notification-center/notifications`, Notifications top
+  menu, accessible footer bell/badge. Configurable HTTP polling (45 seconds by default).
+
+There is deliberately **no undocumented header-right injection**. The documented header-title
+endpoint wraps a home link; placing an interactive bell inside it would create nested links.
+The clean alternative is a standard Gerrit TopMenu plus documented `footer-left` component.
+No shadow-root traversal, MutationObserver or Core DOM manipulation. The quick popup is deferred.
+No screenshots of a real server are claimed yet.
+
+## Install
+
+Build the artifact matching the server's exact tested series. No release is published yet:
+
+```sh
+mise trust && mise install
+mise run setup
+mise run build -- 3.14
+cp dist/notification-center-0.0.0-gerrit-3.14.jar "$GERRIT_SITE/plugins/notification-center.jar"
+```
+
+Use the canonical `notification-center` filename/name; the JAR manifest fixes plugin identity.
+The JAR bundles frontend and H2, never Gerrit API or test classes. A reload restarts the plugin
+and closes its database; stop Gerrit before backup or moving data. Use a staging site first
+until the remaining qualification gates are complete. Do not share an H2 file between instances.
+
+## Configuration
+
+Add to `$GERRIT_SITE/etc/gerrit.config` and restart/reload the plugin:
+
+```ini
+[plugin "notification-center"]
+    enabled = true
+    storagePath = data/notification-center/inbox
+    retentionDays = 90
+    cleanupSeconds = 3600
+    pollSeconds = 45
+    eventREVIEWER_ADDED = true
+    eventMENTION = true
+    eventCOMMENT = true
+    eventPATCHSET = true
+    eventMERGED = true
+    eventABANDONED = true
+```
+
+Storage paths resolve against the Gerrit site; absolute local paths are allowed. The path is
+an H2 file basename (the database appends `.mv.db`), not a JDBC URL. Semicolons are rejected.
+Intervals must satisfy retentionDays ≥ 1, cleanupSeconds ≥ 60, pollSeconds 30–3600.
+Configuration is loaded at plugin startup; no automatic configuration hot reload.
+Disabling stops event delivery and returns conflict on REST access; existing data is retained.
+Cleanup still runs for retained data. See [operations](docs/operations.md).
+
+## REST
+
+Use Gerrit's normal authenticated REST client and XSRF protection:
+
+```text
+GET  /accounts/self/notification-center~notifications?state=unread&limit=50
+GET  /accounts/self/notification-center~notifications?count=true
+POST /accounts/self/notification-center~notifications {"action":"read","id":123}
+POST /accounts/self/notification-center~notifications {"action":"unread","id":123}
+POST /accounts/self/notification-center~notifications {"action":"archive","id":123}
+POST /accounts/self/notification-center~notifications {"action":"read-all"}
+```
+
+List returns `{items: [...], next?: <cursor>}`; pass `before=<next>` for the next page.
+`state`: `all` (non-archived Inbox), `unread`, `archived`; `type` is one of the uppercase event
+names above. `limit` is 1–100. Items use Gerrit's snake_case JSON fields (`created_at`,
+`read_at`, `archived_at`, `account_id`), Unix epoch milliseconds and numeric stable IDs.
+Count returns `unread` and explicit `pollSeconds`. Successful POST returns 204.
+Cross-account access is 403 even for administrators. Unknown or inaccessible notification IDs
+are indistinguishable (404). Invalid action/filter/pagination is 400. Anonymous self access
+is denied by Gerrit's account resource. No account ID is accepted in a mutation payload.
+
+## Development and releases
+
+[Development](docs/development.md) covers canonical Bazel and bounded native builds/tests.
+[Architecture](docs/architecture.md) defines recipients, deduplication and event limitations.
+[Security](docs/security.md), [operations](docs/operations.md),
+[releases](docs/releasing.md), [test evidence](docs/test-evidence.md).
+
+Conventions are adapted from `QuentinBtd/gerrit-branch-review`: Bazel 8.8.1, pinned mise,
+prek, format/lint scripts, Renovate policy, Conventional Commits and Release Please.
+Tests default to local; hosted matrix is explicit maintainer `/test` only. No PR/push test
+matrix or workflow_dispatch test trigger. Release Please retains main-push maintenance.
+
+## Roadmap
+
+- Exact-SHA independent review, canonical Bazel/packaged-plugin/browser qualification.
+- PostgreSQL implementation of NotificationStore for multi-instance sites.
+- Durable event queue/replay, large-Inbox permission-count batching and metrics.
+- Official header bell endpoint if/when documented, quick panel, preferences, SSE later.
