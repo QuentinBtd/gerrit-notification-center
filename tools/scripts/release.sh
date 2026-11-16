@@ -72,9 +72,11 @@ case "${1:-}" in
       die "check out ${rev} to run the release gates against it"
     [[ -z "$(git status --porcelain)" ]] || die "working tree is not clean"
     log "release gates for ${version} at $(git rev-parse --short HEAD)"
-    bash tools/scripts/verify.sh
-    if [[ "${RELEASE_SKIP_MATRIX:-}" != "1" ]]; then
-      bash tools/scripts/test.sh matrix
+    if [[ "${RELEASE_SKIP_MATRIX:-}" == "1" ]]; then
+      # Historical name: only acceptance moves to the required hosted integration job.
+      bash tools/scripts/verify.sh --defer-acceptance
+    else
+      bash tools/scripts/verify.sh
     fi
     log "release ${version} verified"
     ;;

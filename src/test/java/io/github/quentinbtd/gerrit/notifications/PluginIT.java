@@ -15,6 +15,72 @@ public class PluginIT extends LightweightPluginDaemonTest {
   private static final String PATH = "/accounts/self/notification-center~notifications";
 
   @Test
+  public void summaryMentionDoesNotLinkToUnrelatedInline() throws Exception {
+    var result = createChange("summary mention", "a.txt", "one\n");
+    int number = result.getChange().getId().get();
+    var review = new ReviewInput().message("Summary @" + user.email());
+    var comment = new ReviewInput.CommentInput();
+    comment.line = 1;
+    comment.message = "An unrelated inline without a mention";
+    review.comments = java.util.Map.of("a.txt", java.util.List.of(comment));
+    gApi.changes().id(project.get(), number).current().review(review);
+    var response = userRestSession.get(PATH + "?type=MENTION");
+    response.assertOK();
+    var items =
+        JsonParser.parseString(response.getEntityContent())
+            .getAsJsonObject()
+            .getAsJsonArray("items");
+    try {
+      assertThat(items.size()).isEqualTo(1);
+      assertThat(items.get(0).getAsJsonObject().get("url").getAsString())
+          .isEqualTo("/c/" + project.get() + "/+/" + number);
+    } finally {
+      // The lightweight daemon shares the plugin inbox across methods.
+      gApi.changes().id(project.get(), number).setPrivate(true);
+    }
+  }
+
+  @Test
+  public void inlineMentionLinkUsesSmallestMentionUuidNotUnrelatedInline() throws Exception {
+    var result = createChange("mixed inlines", "a.txt", "one\n");
+    int number = result.getChange().getId().get();
+    var review = new ReviewInput();
+    var comments = new java.util.ArrayList<ReviewInput.CommentInput>();
+    for (String message :
+        java.util.List.of(
+            "First @" + user.email(), "Second @" + user.email(), "Unrelated inline")) {
+      var comment = new ReviewInput.CommentInput();
+      comment.line = 1;
+      comment.message = message;
+      comments.add(comment);
+    }
+    review.comments = java.util.Map.of("a.txt", comments);
+    gApi.changes().id(project.get(), number).current().review(review);
+    try {
+      var published = gApi.changes().id(project.get(), number).current().comments().get("a.txt");
+      assertThat(published.size()).isEqualTo(3);
+      var mentionIds =
+          published.stream()
+              .filter(c -> c.message.contains("@" + user.email()))
+              .map(c -> c.id)
+              .sorted()
+              .toList();
+      assertThat(mentionIds.size()).isEqualTo(2);
+      var response = userRestSession.get(PATH + "?type=MENTION");
+      response.assertOK();
+      var items =
+          JsonParser.parseString(response.getEntityContent())
+              .getAsJsonObject()
+              .getAsJsonArray("items");
+      assertThat(items.size()).isEqualTo(1);
+      assertThat(items.get(0).getAsJsonObject().get("url").getAsString())
+          .isEqualTo("/c/" + project.get() + "/+/" + number + "/comment/" + mentionIds.get(0));
+    } finally {
+      gApi.changes().id(project.get(), number).setPrivate(true);
+    }
+  }
+
+  @Test
   public void nativePatchsetMergeAbandonAndInlineMention() throws Exception {
     var result = createChange("a change", "a.txt", "one\n");
     int number = result.getChange().getId().get();

@@ -48,7 +48,7 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
           REF: ${{ inputs.ref }}
-          RELEASE_SKIP_MATRIX: "1" # the integration matrix runs as its own required job below
+          RELEASE_SKIP_MATRIX: "1" # only acceptance is delegated to the required integration job
         run: bash tools/scripts/release.sh verify "$VERSION" "$REF"
 
   integration:
@@ -69,7 +69,8 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
           fetch-depth: 0
-      # No shared cache in the release build: inputs come only from checksum-pinned downloads.
+      # No shared Bazel disk cache; mise tool-installation caching remains enabled.
+      # See docs/releasing.md for the unqualified tool-cache integrity boundary.
       - uses: ./.github/actions/setup
         with:
           bazel-cache: "false"

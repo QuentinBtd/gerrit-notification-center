@@ -90,6 +90,7 @@ class Inbox extends HTMLElement {
     } catch {
       if (generation === this.generation && this.isConnected) {
         this.busy = false; this.rows = []; this.message = 'Unable to save. Retry or refresh notifications.'; this.render();
+        this.timer = setTimeout(() => void this.refresh(), this.poll);
       }
     }
   }

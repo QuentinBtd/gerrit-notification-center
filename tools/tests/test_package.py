@@ -10,6 +10,28 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PackagingTest(unittest.TestCase):
+    def test_artifact_guard_requires_h2_license_in_otherwise_valid_jar(self):
+        spec = importlib.util.spec_from_file_location("guard", ROOT / "tools/scripts/check_jar.py")
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        with tempfile.TemporaryDirectory() as temp:
+            out = Path(temp) / "plugin.jar"
+            with zipfile.ZipFile(out, "w") as jar:
+                fields = {**guard.REQUIRED, "Implementation-Version": "0.0.0", "Gerrit-ApiVersion": "3.14.4"}
+                jar.writestr("META-INF/MANIFEST.MF", "\r\n".join(f"{k}: {v}" for k, v in fields.items()))
+                for name in [
+                    "LICENSE",
+                    "static/notification-center.js",
+                    "org/h2/Driver.class",
+                    "io/github/quentinbtd/gerrit/notifications/Module.class",
+                ]:
+                    jar.writestr(name, b"fixture")
+            with self.assertRaisesRegex(SystemExit, "missing META-INF/licenses/H2-LICENSE.txt"):
+                guard.main(out, "0.0.0", "3.14.4")
+            with zipfile.ZipFile(out, "a") as jar:
+                jar.writestr("META-INF/licenses/H2-LICENSE.txt", "fixture notice")
+            guard.main(out, "0.0.0", "3.14.4")
+
     def test_embeds_frontend_driver_and_manifest_without_signature_or_api(self):
         spec = importlib.util.spec_from_file_location("packaging", ROOT / "tools/scripts/native_package.py")
         module = importlib.util.module_from_spec(spec)

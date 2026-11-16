@@ -6,6 +6,17 @@ read replicas sharing this DB, clustering and multi-site failover are unsupporte
 Use site filesystem permissions to restrict the file to Gerrit's operating-system account;
 this plugin does not encrypt database pages or create/manage filesystem credentials.
 
+## Large-inbox qualification boundary
+
+A page limit bounds returned rows, not work: mostly hidden rows can require a long scan, and
+count polling repeats fresh Change READ checks over unread rows. Large-site performance is
+not qualified. Before claiming that scope, measure request latency, permission-check counts
+and storage batches for production-sized inboxes with mostly revoked access, repeated Changes
+and overlapping count/list/read-all requests. Establish an explicit work/latency budget before
+adding batching or caching, and test revocation against every optimization. Retention and
+polling intervals are operational controls, not a demonstrated upper bound. Never remove
+current READ guards or substitute an authorization-blind SQL count to improve these numbers.
+
 ## Backup and restore
 
 1. Stop Gerrit (or unload/stop the plugin and verify its database connection has closed).
@@ -31,7 +42,8 @@ health using server/OS diagnostics without enabling sensitive HTTP payload loggi
 - Empty inbox: confirm signed-in account, reviewer/owner rules, event flags and Change visibility.
 - Missing bell: check plugin frontend resource loading and footer; no right-header bell is promised.
 - Load/save error: verify session, plugin enabled flag and server storage health. UI shows a generic
-  error rather than backend payload. Retry/Refresh is explicit; mutations are not automatically replayed.
+  error rather than backend payload. Bounded read polling resumes after a save failure; only an
+  explicit user action can retry a mutation. Refresh remains available.
 - H2 lock error: stop the second process; do not enable shared mode or delete lock/database files.
 - Future schema / invalid config: fail startup, restore a compatible artifact/backup or correct config.
 - Growing count latency: reduce retention or plan PostgreSQL plus permission-aware batching; do not

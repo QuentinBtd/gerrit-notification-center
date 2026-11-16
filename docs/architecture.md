@@ -58,9 +58,11 @@ review; the event contract has no exact inline-ID list. This is a documented bes
 correlation boundary, not an exactly-once or perfect causality claim. General review summary
 comments may include Gerrit-generated text; vote-only filtering only suppresses empty summaries.
 
-Deep links target a Change; an inline-mention action targets a matching comment. With multiple
-inline comments in one review, the aggregate action uses one matching comment link, not a
-separate notification/link per mention. Thread-specific fanout is deferred.
+Deep links target a Change; an inline-mention action targets the lexicographically smallest
+UUID among claimed inline comments whose own text resolves at least one explicit mention.
+Unrelated inline comments never replace that link, including when only the summary mentions
+someone. With multiple inline comments in one review, the aggregate action uses one matching
+comment link, not a separate notification/link per mention. Thread-specific fanout is deferred.
 
 ## Identity, persistence and retention
 

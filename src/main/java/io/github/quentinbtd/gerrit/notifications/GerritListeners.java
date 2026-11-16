@@ -108,6 +108,7 @@ public final class GerritListeners
                     + e.getWhen()
                     + ":"
                     + discriminator);
+        String mentionComment = null;
         for (var inline : n.getHumanComments().values()) {
           if (inline.author.getId().get() == actor
               && inline.writtenOn.toInstant().getEpochSecond() == e.getWhen().getEpochSecond()
@@ -117,15 +118,19 @@ public final class GerritListeners
                   inline.key.uuid,
                   commentEvent,
                   e.getWhen().toEpochMilli())) {
-            mentions.addAll(resolver.mentions(inline.message));
-            if (!mentions.isEmpty())
+            var inlineMentions = resolver.mentions(inline.message);
+            mentions.addAll(inlineMentions);
+            if (!inlineMentions.isEmpty()
+                && (mentionComment == null || inline.key.uuid.compareTo(mentionComment) < 0)) {
+              mentionComment = inline.key.uuid;
               url =
                   "/c/"
                       + URLEncoder.encode(c.project, StandardCharsets.UTF_8).replace("+", "%20")
                       + "/+/"
                       + c._number
                       + "/comment/"
-                      + URLEncoder.encode(inline.key.uuid, StandardCharsets.UTF_8);
+                      + URLEncoder.encode(mentionComment, StandardCharsets.UTF_8);
+            }
           }
         }
         // Gerrit also emits vote-only comment-added events. Do not notify on those.

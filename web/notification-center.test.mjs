@@ -4,16 +4,21 @@ import {build} from 'esbuild';
 import {Window} from 'happy-dom';
 
 const settle=()=>new Promise(r=>setTimeout(r,10));
-async function harness({loggedIn=true,fail=false}={}) {
+async function harness({loggedIn=true,fail=false,failSave=false,fakePolling=false}={}) {
   const bundle=await build({entryPoints:['web/notification-center.ts'],bundle:true,format:'iife',write:false});
   const w=new Window({url:'https://review.example.org/gerrit/'});
-  const calls=[],registrations=[];
+  const calls=[],registrations=[],timers=new Map();
+  let timerId=0;
+  if(fakePolling) {
+    w.setTimeout=(callback,delay)=>{const id=++timerId;timers.set(id,{callback,delay});return id;};
+    w.clearTimeout=id=>timers.delete(id);
+  }
   let callback;
   const rows=[{id:2,account_id:7,type:'MENTION',actor:8,project:'<img src=x onerror=alert(1)>',change:12,url:'/c/p/+/12',created_at:100,read_at:null,archived_at:null}];
   const api={getLoggedIn:async()=>loggedIn,get:async url=>{
     calls.push(['get',url]); if(fail) throw Error('private backend detail');
     return url.includes('count=')?{unread:3,pollSeconds:45}:{items:rows,next:null};
-  },post:async(url,payload)=>{calls.push(['post',url,payload]);}};
+  },post:async(url,payload)=>{calls.push(['post',url,payload]);if(failSave) throw Error('private mutation detail');}};
   const plugin={url:()=> 'https://review.example.org/gerrit/',restApi:()=>api,
     screen:(...a)=>registrations.push(['screen',...a]),
     registerCustomComponent:(...a)=>registrations.push(['component',...a])};
@@ -21,7 +26,7 @@ async function harness({loggedIn=true,fail=false}={}) {
   w.eval(bundle.outputFiles[0].text); callback(plugin);
   const screen=w.document.createElement('notification-center-screen');screen.plugin=plugin;
   w.document.body.append(screen);await settle();
-  return {w,screen,calls,registrations,plugin};
+  return {w,screen,calls,registrations,plugin,timers};
 }
 
 test('official registration and full inbox actions use authenticated Gerrit REST',async()=>{
@@ -43,6 +48,30 @@ test('official registration and full inbox actions use authenticated Gerrit REST
     assert.ok(calls.some(c=>c[2]?.action==='read-all'));
     const state=root.querySelector('select[aria-label="State"]');state.value='archived';state.dispatchEvent(new w.Event('change'));await settle();
     assert.ok(calls.some(c=>c[1].includes('state=archived')));
+  } finally {await w.happyDOM.close();}
+});
+
+test('failed save resumes bounded read polling without replaying mutation; detach cancels it',async()=>{
+  const {w,screen,calls,timers}=await harness({failSave:true,fakePolling:true});
+  try {
+    assert.equal(timers.size,1);
+    assert.ok(screen.shadowRoot.querySelector('article.unread'));
+    [...screen.shadowRoot.querySelectorAll('button')].find(b=>b.textContent==='Mark read').click();
+    await settle();
+    assert.match(screen.shadowRoot.textContent,/Unable to save/);
+    assert.doesNotMatch(screen.shadowRoot.textContent,/private mutation detail/);
+    assert.equal(calls.filter(c=>c[0]==='post').length,1);
+    assert.equal(timers.size,1,'failed save must rearm polling');
+    const [id,timer]=[...timers][0];
+    assert.equal(timer.delay,45000);
+    const reads=calls.filter(c=>c[0]==='get').length;
+    timers.delete(id);timer.callback();await settle();
+    assert.equal(calls.filter(c=>c[0]==='get').length,reads+2);
+    assert.equal(calls.filter(c=>c[0]==='post').length,1,'poll must not retry the save');
+    assert.ok(screen.shadowRoot.querySelector('article.unread'));
+    assert.equal(timers.size,1);
+    screen.remove();
+    assert.equal(timers.size,0);
   } finally {await w.happyDOM.close();}
 });
 

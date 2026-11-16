@@ -26,6 +26,22 @@ already exist (Release Please); explicit X.Y.Z-rc.N uses the reference's separat
 script path and does not move Release Please state. No release/push/merge was performed for this
 candidate. Do not publish before independent QA closes the known qualification gates.
 
+## Gate selection and cache boundary
+
+Local `verify.sh` and `release.sh verify` run the complete unit/acceptance matrix once,
+plus all-series build validation. Hosted release verification sets the historical
+`RELEASE_SKIP_MATRIX=1` flag: it defers **only acceptance** to the required exact-ref
+integration job, retaining all-series unit tests and build validation in verify. Asset
+building depends on both jobs. Do not use that flag as a standalone complete release gate.
+The subsequent asset build is required release packaging, not a redundant test run.
+
+`bazel-cache: false` disables the shared Bazel disk cache only. The setup action still enables
+mise's tool-installation cache; the release toolchain is not entirely cache-free. Pinned
+versions alone do not independently authenticate restored tool binaries. Tool-cache integrity
+and canonical tool/module locks remain release qualifications; no hosted cache restoration
+or cache-poisoning exploit has been demonstrated here. Do not describe checksum-pinned
+plugin dependency downloads as proof of the entire toolchain's integrity.
+
 Default test policy is local-first; `/test` on a PR is an explicit hosted request, not automatic
 push/PR CI. Workflows first need to exist on the default branch. Dynamic status names include
 run ID/attempt and are not a fixed branch-protection check. A Release Please bot PR may need a

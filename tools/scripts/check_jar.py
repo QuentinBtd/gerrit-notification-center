@@ -26,6 +26,7 @@ def main(path, version, release):
         names = set(jar.namelist())
         for name in [
             "LICENSE",
+            "META-INF/licenses/H2-LICENSE.txt",
             "static/notification-center.js",
             "org/h2/Driver.class",
             "io/github/quentinbtd/gerrit/notifications/Module.class",
