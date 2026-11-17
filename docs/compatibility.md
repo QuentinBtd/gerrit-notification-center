@@ -11,10 +11,10 @@ an earlier server. Exact release/source/artifact checksums come from the inspect
 matrix (`tools/gerrit-releases.json`), not guessed versions. Passing these exact releases does
 not prove every patch of a series or production support. No Core patch is required.
 
-The public frontend contracts (footer-left, screen, REST get/fetch/getLoggedIn) were checked
-against pinned Gerrit sources; TypeScript and DOM tests pass. Public header-title is unsuitable
-for a nested interactive bell; header-top-right exists in source but is not in the documented
-endpoint contract. No source-only endpoint is used.
+The public frontend contracts (header-top-right, screen, REST get/fetch/getLoggedIn) were checked
+against pinned Gerrit sources; TypeScript and DOM tests pass. header-top-right exists in the
+source of all three pinned releases but is not in the documented endpoint contract; it is the
+one source-only endpoint used, for the header bell.
 
 ## Remaining release gates
 

@@ -1,6 +1,5 @@
 package io.github.quentinbtd.gerrit.notifications;
 
-import com.google.gerrit.extensions.client.MenuItem;
 import com.google.gerrit.extensions.events.*;
 import com.google.gerrit.extensions.registration.DynamicSet;
 import com.google.gerrit.extensions.restapi.RestApiModule;
@@ -8,7 +7,6 @@ import com.google.gerrit.extensions.webui.*;
 import com.google.gerrit.lifecycle.LifecycleModule;
 import com.google.gerrit.server.account.AccountResource;
 import com.google.inject.*;
-import java.util.List;
 
 public final class Module extends AbstractModule {
   @Override
@@ -20,13 +18,6 @@ public final class Module extends AbstractModule {
     DynamicSet.bind(binder(), ChangeAbandonedListener.class).to(GerritListeners.class);
     DynamicSet.bind(binder(), WebUiPlugin.class)
         .toInstance(new JavaScriptPlugin("notification-center.js"));
-    DynamicSet.bind(binder(), TopMenu.class)
-        .toInstance(
-            () ->
-                List.of(
-                    new TopMenu.MenuEntry(
-                        "Notifications",
-                        List.of(new MenuItem("Inbox", "/x/notification-center/notifications")))));
     install(
         new LifecycleModule() {
           @Override

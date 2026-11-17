@@ -40,7 +40,8 @@ Warnings omit exception messages, comment text, project names and emails. Correl
 health using server/OS diagnostics without enabling sensitive HTTP payload logging.
 
 - Empty inbox: confirm signed-in account, reviewer/owner rules, event flags and Change visibility.
-- Missing bell: check plugin frontend resource loading and footer; no right-header bell is promised.
+- Missing bell: check plugin frontend resource loading and that the Gerrit header still exposes
+  `header-top-right` (hidden on mobile widths).
 - Load/save error: verify session, plugin enabled flag and server storage health. UI shows a generic
   error rather than backend payload. Bounded read polling resumes after a save failure; only an
   explicit user action can retry a mutation. Refresh remains available.

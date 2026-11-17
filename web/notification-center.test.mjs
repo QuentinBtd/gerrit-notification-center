@@ -39,7 +39,7 @@ test('official registration and full inbox actions use authenticated Gerrit REST
   const {w,screen,calls,registrations,plugin}=await harness();
   try {
     assert.ok(registrations.some(r=>r[0]==='screen'&&r[1]==='notifications'));
-    assert.ok(registrations.some(r=>r[1]==='footer-left'));
+    assert.ok(registrations.some(r=>r[1]==='header-top-right'));
     const root=screen.shadowRoot;
     assert.match(root.textContent,/Notifications/);
     assert.match(root.textContent,/<img src=x/);
@@ -48,6 +48,8 @@ test('official registration and full inbox actions use authenticated Gerrit REST
     const bell=w.document.createElement('notification-center-bell');bell.plugin=plugin;
     w.document.body.append(bell);await settle();
     assert.equal(bell.shadowRoot.querySelector('a').href,'https://review.example.org/gerrit/x/notification-center/notifications');
+    assert.equal(bell.shadowRoot.querySelector('gr-icon').getAttribute('icon'),'notifications');
+    assert.equal(bell.shadowRoot.querySelector('.badge').textContent,'3');
     const read=[...root.querySelectorAll('button')].find(b=>b.textContent==='Mark read');
     read.click();await settle();
     assert.deepEqual(JSON.parse(JSON.stringify(calls.find(c=>c[0]==='post')[2])),{action:'read',id:2});

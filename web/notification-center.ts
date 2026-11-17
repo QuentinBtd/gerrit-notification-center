@@ -103,14 +103,17 @@ class Inbox extends HTMLElement {
   private render() {
     const root = this.shadowRoot!; root.replaceChildren();
     const style = document.createElement('style');
-    style.textContent = `:host{display:block;color:var(--primary-text-color);font-family:var(--font-family, sans-serif);font-size:var(--font-size-normal,14px)}section{background:var(--view-background-color);padding:var(--spacing-l,16px);max-width:70rem;margin:auto}h1{font-size:var(--font-size-h2,24px)}nav{display:flex;flex-wrap:wrap;gap:var(--spacing-m,8px);align-items:center}article{padding:var(--spacing-m,8px);border-bottom:1px solid var(--border-color,#ddd)}article.unread{border-inline-start:3px solid var(--link-color,#1967d2)}a{color:var(--link-color,#1967d2)}button,select{font:inherit;color:inherit;background:var(--view-background-color);border:1px solid var(--border-color,#aaa);border-radius:4px;padding:6px;margin:4px}button{cursor:pointer}button:disabled{cursor:wait;opacity:.6}.meta{color:var(--deemphasized-text-color);margin:6px 0}.bell{padding:4px;display:inline-block}`;
+    style.textContent = `:host{display:block;color:var(--primary-text-color);font-family:var(--font-family, sans-serif);font-size:var(--font-size-normal,14px)}section{background:var(--view-background-color);padding:var(--spacing-l,16px);max-width:70rem;margin:auto}h1{font-size:var(--font-size-h2,24px)}nav{display:flex;flex-wrap:wrap;gap:var(--spacing-m,8px);align-items:center}article{padding:var(--spacing-m,8px);border-bottom:1px solid var(--border-color,#ddd)}article.unread{border-inline-start:3px solid var(--link-color,#1967d2)}a{color:var(--link-color,#1967d2)}button,select{font:inherit;color:inherit;background:var(--view-background-color);border:1px solid var(--border-color,#aaa);border-radius:4px;padding:6px;margin:4px}button{cursor:pointer}button:disabled{cursor:wait;opacity:.6}.meta{color:var(--deemphasized-text-color);margin:6px 0}.bell{position:relative;display:inline-flex;align-items:center;padding:var(--spacing-s,4px);color:var(--header-text-color,inherit);text-decoration:none}.bell gr-icon{font-size:24px}.badge{position:absolute;top:0;right:0;min-width:16px;padding:0 3px;box-sizing:border-box;border-radius:8px;background:var(--error-foreground,#d93025);color:#fff;font-size:11px;line-height:16px;text-align:center}`;
     root.append(style);
     if (this.bellOnly) {
       if (!this.loggedIn) return;
       const a = document.createElement('a'); a.className = 'bell';
       a.href = this.rootUrl('x/notification-center/notifications');
-      a.textContent = `🔔 Notifications (${this.unread})`;
-      a.setAttribute('aria-label', `${this.unread} unread notifications`); root.append(a); return;
+      a.title = 'Notifications';
+      a.setAttribute('aria-label', `Notifications, ${this.unread} unread`);
+      const icon = document.createElement('gr-icon'); icon.setAttribute('icon', 'notifications'); a.append(icon);
+      if (this.unread) {const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = this.unread > 99 ? '99+' : String(this.unread); a.append(badge);}
+      root.append(a); return;
     }
     const section = document.createElement('section');
     const title = document.createElement('h1'); title.textContent = `Notifications (${this.unread} unread)`; section.append(title);
@@ -148,5 +151,5 @@ customElements.define('notification-center-screen', Inbox);
 customElements.define('notification-center-bell', Bell);
 Gerrit.install(plugin => {
   plugin.screen('notifications', 'notification-center-screen');
-  plugin.registerCustomComponent('footer-left', 'notification-center-bell');
+  plugin.registerCustomComponent('header-top-right', 'notification-center-bell');
 });

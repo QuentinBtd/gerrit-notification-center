@@ -19,12 +19,12 @@ support or a published release. See [compatibility](docs/compatibility.md).
 - Keyset pagination, state/type filters, recipient-scoped deduplication and retention.
 - Authenticated own-account REST API. Live Change READ permission checks also protect counts
   and mutations after access is revoked.
-- Full Notifications screen under `/x/notification-center/notifications`, Notifications top
-  menu, accessible footer bell/badge. Configurable HTTP polling (45 seconds by default).
+- Full Notifications screen under `/x/notification-center/notifications`, header bell
+  icon with unread badge (between search and settings). Configurable HTTP polling (45 seconds by default).
 
-There is deliberately **no undocumented header-right injection**. The documented header-title
-endpoint wraps a home link; placing an interactive bell inside it would create nested links.
-The clean alternative is a standard Gerrit TopMenu plus documented `footer-left` component.
+The bell uses the `header-top-right` endpoint. It exists in the Gerrit source of every supported
+series (3.12–3.14) but is not in the documented endpoint list, so re-check it on each Gerrit upgrade.
+Gerrit hides it on mobile widths; use `/x/notification-center/notifications` directly there.
 No shadow-root traversal, MutationObserver or Core DOM manipulation. The quick popup is deferred.
 Real 3.14.4 browser captures are retained with the qualification receipts; no screenshot
 assets have been published in this repository.
@@ -110,4 +110,4 @@ matrix or workflow_dispatch test trigger. Release Please retains main-push maint
 - Earlier-series packaged-server/browser qualification and remaining tool/release gates.
 - PostgreSQL implementation of NotificationStore for multi-instance sites.
 - Durable event queue/replay, large-Inbox permission-count batching and metrics.
-- Official header bell endpoint if/when documented, quick panel, preferences, SSE later.
+- Quick panel, preferences, SSE later.

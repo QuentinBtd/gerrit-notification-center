@@ -27,8 +27,9 @@ acceptance tests establish tested behavior, not a blanket cross-series binary gu
 The 3.14 source contains `header-top-right`, but the pinned public endpoint documentation
 does not list it. A source-level implementation detail is not a documented stable plugin
 contract. Public `header-title` decorates content within the home anchor, so an interactive
-bell there would nest links. Use documented footer-left for the badge, native TopMenu for
-header navigation and public screen() for the full page. No unofficial endpoint is used.
+bell there would nest links. Decision (revised): the bell uses `header-top-right`, verified present in
+3.12.11, 3.13.10 and 3.14.4 `gr-main-header.ts` between the search box and settings button.
+It is source-level, not documented, so it must be re-checked on each Gerrit upgrade.
 
 ## REST and frontend
 
