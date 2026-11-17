@@ -18,8 +18,15 @@ async function harness({loggedIn=true,fail=false,failSave=false,fakePolling=fals
   const api={getLoggedIn:async()=>loggedIn,get:async url=>{
     calls.push(['get',url]); if(fail) throw Error('private backend detail');
     return url.includes('count=')?{unread:3,pollSeconds:45}:{items:rows,next:null};
-  },post:async(url,payload)=>{calls.push(['post',url,payload]);if(failSave) throw Error('private mutation detail');}};
-  const plugin={url:()=> 'https://review.example.org/gerrit/',restApi:()=>api,
+  },post:async(url,payload)=>{
+    calls.push(['post',url,payload]);if(failSave) throw Error('private mutation detail');
+    throw Error('Response payload is not prefixed json. Payload: ');
+  },fetch:async(method,url,payload)=>{
+    assert.equal(method,'POST');calls.push(['post',url,payload]);
+    if(failSave) throw Error('private mutation detail');
+    return new w.Response(null,{status:204});
+  }};
+  const plugin={url:()=> 'https://review.example.org/gerrit/plugins/notification-center/',restApi:()=>api,
     screen:(...a)=>registrations.push(['screen',...a]),
     registerCustomComponent:(...a)=>registrations.push(['component',...a])};
   w.Gerrit={install:cb=>{callback=cb;}};
@@ -30,7 +37,7 @@ async function harness({loggedIn=true,fail=false,failSave=false,fakePolling=fals
 }
 
 test('official registration and full inbox actions use authenticated Gerrit REST',async()=>{
-  const {w,screen,calls,registrations}=await harness();
+  const {w,screen,calls,registrations,plugin}=await harness();
   try {
     assert.ok(registrations.some(r=>r[0]==='screen'&&r[1]==='notifications'));
     assert.ok(registrations.some(r=>r[1]==='footer-left'));
@@ -39,6 +46,9 @@ test('official registration and full inbox actions use authenticated Gerrit REST
     assert.match(root.textContent,/<img src=x/);
     assert.equal(root.querySelector('img'),null);
     assert.equal(root.querySelector('a[data-change]').href,'https://review.example.org/gerrit/c/p/+/12');
+    const bell=w.document.createElement('notification-center-bell');bell.plugin=plugin;
+    w.document.body.append(bell);await settle();
+    assert.equal(bell.shadowRoot.querySelector('a').href,'https://review.example.org/gerrit/x/notification-center/notifications');
     const read=[...root.querySelectorAll('button')].find(b=>b.textContent==='Mark read');
     read.click();await settle();
     assert.deepEqual(JSON.parse(JSON.stringify(calls.find(c=>c[0]==='post')[2])),{action:'read',id:2});
@@ -48,6 +58,19 @@ test('official registration and full inbox actions use authenticated Gerrit REST
     assert.ok(calls.some(c=>c[2]?.action==='read-all'));
     const state=root.querySelector('select[aria-label="State"]');state.value='archived';state.dispatchEvent(new w.Event('change'));await settle();
     assert.ok(calls.some(c=>c[1].includes('state=archived')));
+  } finally {await w.happyDOM.close();}
+});
+
+test('empty 204 mutation response refreshes without a false save failure',async()=>{
+  const {w,screen,calls,timers}=await harness({fakePolling:true});
+  try {
+    const reads=calls.filter(c=>c[0]==='get').length;
+    [...screen.shadowRoot.querySelectorAll('button')].find(b=>b.textContent==='Mark read').click();
+    await settle();
+    assert.doesNotMatch(screen.shadowRoot.textContent,/Unable to save/);
+    assert.equal(calls.filter(c=>c[0]==='post').length,1);
+    assert.equal(calls.filter(c=>c[0]==='get').length,reads+2);
+    assert.equal(timers.size,1);
   } finally {await w.happyDOM.close();}
 });
 

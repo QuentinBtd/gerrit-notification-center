@@ -4,10 +4,12 @@ Persistent, per-account notifications for Gerrit, without modifying Gerrit Core.
 Java 21 backend, embedded H2, TypeScript PolyGerrit UI. Apache-2.0; bundled H2 is
 MPL-2.0/EPL-1.0 (license included).
 
-**Unreleased MVP candidate.** Native compilation and in-process acceptance have been
-executed against Gerrit **3.14.4**, **3.13.10**, **3.12.11**. This is not yet a claim of
-production support: canonical Bazel execution, packaged-plugin loading and a real
-PolyGerrit browser journey remain qualification gates. See [compatibility](docs/compatibility.md).
+**Unreleased MVP candidate.** Canonical Bazel JAR builds, **10 unit + 4 in-process
+acceptance cases per version**, pass against Gerrit **3.14.4**, **3.13.10**, **3.12.11**.
+The packaged **3.14.4** plugin also passes focused real-server HTTP, account/XSRF/permission,
+PolyGerrit read/archive/navigation and full-server persistence checks. Earlier-series
+packaged-server/browser and remaining release gates are still open; this is not production
+support or a published release. See [compatibility](docs/compatibility.md).
 
 ## Features
 
@@ -24,7 +26,8 @@ There is deliberately **no undocumented header-right injection**. The documented
 endpoint wraps a home link; placing an interactive bell inside it would create nested links.
 The clean alternative is a standard Gerrit TopMenu plus documented `footer-left` component.
 No shadow-root traversal, MutationObserver or Core DOM manipulation. The quick popup is deferred.
-No screenshots of a real server are claimed yet.
+Real 3.14.4 browser captures are retained with the qualification receipts; no screenshot
+assets have been published in this repository.
 
 ## Install
 
@@ -104,7 +107,7 @@ matrix or workflow_dispatch test trigger. Release Please retains main-push maint
 
 ## Roadmap
 
-- Exact-SHA independent review, canonical Bazel/packaged-plugin/browser qualification.
+- Earlier-series packaged-server/browser qualification and remaining tool/release gates.
 - PostgreSQL implementation of NotificationStore for multi-instance sites.
 - Durable event queue/replay, large-Inbox permission-count batching and metrics.
 - Official header bell endpoint if/when documented, quick panel, preferences, SSE later.

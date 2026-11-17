@@ -3,7 +3,7 @@
 interface RestApi {
   getLoggedIn(): Promise<boolean>;
   get<T>(url: string): Promise<T>;
-  post<T>(url: string, payload?: object): Promise<T>;
+  fetch(method: 'POST', url: string, payload?: object): Promise<Response>;
 }
 interface PluginApi {
   url(): string;
@@ -44,7 +44,8 @@ class Inbox extends HTMLElement {
   connectedCallback() {this.render(); if (this.plugin) void this.refresh();}
   disconnectedCallback() {this.generation++; this.busy = false; clearTimeout(this.timer);}
   private rootUrl(relative: string): string {
-    return new URL(relative.replace(/^\//, ''), this.plugin!.url()).toString();
+    const gerritRoot = new URL('../../', this.plugin!.url());
+    return new URL(relative.replace(/^\//, ''), gerritRoot).toString();
   }
   private async refresh(append = false): Promise<void> {
     if (this.busy || !this.plugin || !this.isConnected) return;
@@ -84,7 +85,8 @@ class Inbox extends HTMLElement {
     this.busy = true; clearTimeout(this.timer); this.render();
     const generation = this.generation;
     try {
-      await this.plugin.restApi().post(path, {action, ...(id === undefined ? {} : {id})});
+      const response = await this.plugin.restApi().fetch('POST', path, {action, ...(id === undefined ? {} : {id})});
+      if (!response.ok) throw new Error('Unable to save notification');
       if (generation !== this.generation || !this.isConnected) return;
       this.busy = false; await this.refresh();
     } catch {

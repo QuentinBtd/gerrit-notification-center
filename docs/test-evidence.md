@@ -90,5 +90,87 @@ is inferred. Large-inbox performance and tool-cache integrity remain explicitly 
 
 Full names are `notification-center-0.0.0-<suffix>`; artifacts and native-builds.json are copied
 to the evidence directory's artifacts/ subdirectory. No source/runtime caches from the reference
-were modified. The canonical Bazel/packaged-server/browser/hosted-CI gates remain pending;
-see compatibility.md. Independent QA owns the frozen-candidate campaign and publication decision.
+were modified. At that historical snapshot the canonical Bazel/packaged-server/browser and
+hosted-CI gates were pending; the follow-up below records subsequent scoped qualification.
+The original independent-review evidence stays immutable; no publication is inferred.
+
+## Authorized remote qualification (2026-11-16)
+
+The persistent owner used the explicitly authorized isolated test-server directory and shared
+heavy-build lock. The independent-review source, original receipts and reference checkout stayed
+unchanged. This follow-up did not start another general review or a second source writer.
+
+### Real browser corrections
+
+An initial real Gerrit 3.14.4 run of the authenticated native development JAR passed external
+HTTP account/XSRF/permission probes and persistence checks, but exposed two frontend defects:
+
+- `plugin.url()` was a plugin resource root. Change and footer links therefore navigated below
+  `/r/plugins/notification-center/` and reached Not Found. `runtime-link-red.json` reproduces
+  the same defect with the actual resource-root contract; the identical primary passes in
+  `runtime-link-green.json` after deriving the Gerrit navigation root.
+- Public `post/send` rejected a successful empty 204 response as non-prefixed JSON after the
+  mutation had committed. `runtime-empty204-red.json` reproduces the false save error;
+  `runtime-empty204-green.json` passes after using public fetch and checking Response.ok.
+  Mutation retries, raw-error disclosure and XSRF bypasses were not added.
+
+`npm test` passes **4 DOM cases** and `npm run build` passes strict TypeScript and esbuild.
+The frontend-only development repacks were authenticated against every original JAR member;
+only the JS resource changed, and all 20 reused plugin class files matched the accepted native
+artifact. Native repacks are not presented as canonical packaging.
+
+### Canonical matrix and real 3.14 server
+
+The corrected code snapshot was frozen with source-manifest SHA-256
+`3c290007e09811037e40e790a6d5404061de069e0782a9c75671d392901b4bd7`.
+Subsequent documentation and the actual generated lockfile do not change compiled inputs.
+
+- Actual Bazel **8.8.1** canonical deploy-JAR targets pass for **3.14.4, 3.12.11 and 3.13.10**.
+  The prepared frontend came from the executed pinned-Node build, not a stub.
+- Fresh canonical execution passes **10 unit + 4 in-process acceptance cases per release**.
+  Counts come from actual testcase XML, not nested suite aggregates. One acceptance monitor
+  encountered a disappearing Bazel marker during du; the successful original tests and harness
+  failure were retained, the monitor was made fail-closed with bounded complete-measurement
+  retries/finally cleanup, and only acceptance was rerun under continuous supervision.
+- The actual generated MODULE.bazel.lock, SHA-256
+  `ec40b768f99a0c38ed15399b9998cfe38574101982227c4aea0ca88d8ae4fdaa`,
+  passed explicit error-mode verification across the matrix without changing its bytes.
+- Each actual JAR passes check_jar.py. Frontend and H2 notice bytes match their inputs; Gerrit,
+  Guice and JUnit API classes are excluded. No release/distribution metadata is fabricated.
+- The canonical 3.14 JAR was loaded into the exact cached Gerrit 3.14.4 image. **12 external
+  HTTP assertions** pass for existing H2 records, actual artifact identity, anonymous/foreign
+  account denial, XSRF refusal, read/unread state, revoked list/count/mutation access and hidden
+  read-all preservation. The supervisor verifies the real server version and served JS SHA.
+- Native browser controls on that canonical JAR pass read, archive, archived filtering and
+  navigation to the actual Change. A full server restart changed Docker StartedAt while all
+  three archived records, read/archive timestamps and count remained exactly equal; the browser
+  then rendered the three retained records. Captures include
+  `canonical-browser-read-archive-green.png` and `canonical-browser-restart-archived-green.png`
+  in the external evidence directory. The byte-identical frontend also has real footer,
+  read-all and unmodified 30-second polling proof from the corrected native-JAR run.
+
+| Canonical JAR suffix | SHA-256 |
+| --- | --- |
+| gerrit-3.14.jar | `84b32ff43d0277c877092a373d112436b9ce46f6839508bbc9c0ff67f0b01de1` |
+| gerrit-3.12.jar | `d7297ca1e5cf33e6be9481dc6b8843d31750c417dba9979a31d8683b1c4a97a9` |
+| gerrit-3.13.jar | `805cdeb0bc0014a0c929668f91b4553512694a0762e009dfae4b903a486d22f9` |
+
+Setup failures are preserved separately from product REDs: image UID 1001 versus host UID 1000,
+an invalid synthetic email domain, the explicit repository-cache v1 directory, a missing image
+C toolchain (existing host tools were mounted read-only), and the H2 canonical-ID cache miss
+(the genuine pinned file was supplied through distdir). Archive downloads stayed disabled;
+other-project inputs were OS-read-only and their hashes/mtimes remained unchanged. Disk, time,
+CPU and RAM bounds were not weakened. Upstream JVM/test-size warnings remain in raw logs.
+
+### Open boundaries
+
+Earlier-series packaged-server/browser runs still need a complete admitted resource envelope;
+cached images and canonical unit results do not establish those runtime gates. Full
+theme/mobile/accessibility, concurrency/storage-failure, packaged migration/reload and
+large-Inbox performance qualification remain unclaimed. Direct canonical target execution is
+not a claim that package.sh, hosted CI, Release Please or publication ran.
+
+`mise lock --dry-run --platform linux-x64 --jobs 1` exited 1 because this project's .mise.toml
+was not trusted. No automatic trust, approval bypass, global installation or fabricated
+mise.lock followed. Explicit scoped project-trust approval is needed for that tool-lock gate.
+No commit, push, tag, merge or release was performed during this follow-up.

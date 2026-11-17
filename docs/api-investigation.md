@@ -33,7 +33,18 @@ header navigation and public screen() for the full page. No unofficial endpoint 
 ## REST and frontend
 
 The public RestPluginApi prefix defaults to empty and delegates requests to Gerrit's normal
-REST service, including its base URL/authentication/XSRF handling. The plugin only uses
-getLoggedIn/get/post. plugin.url() provides the base URL for subpath-safe links. Gson's
-standard output policy is LOWER_CASE_WITH_UNDERSCORES, accounted for in frontend types.
-The local API declarations intentionally describe only used public methods, not internal APIs.
+REST service, including its base URL/authentication/XSRF handling. The plugin uses
+getLoggedIn/get/fetch. Gson's standard output policy is LOWER_CASE_WITH_UNDERSCORES,
+accounted for in frontend types. The local API declarations describe only used public methods.
+
+Real packaged 3.14.4 qualification exposed two assumptions that DOM mocks had missed:
+
+- Actual `plugin.url()` returned the plugin resource root, ending in
+  `/plugins/notification-center/`, despite a public interface comment describing a same-origin
+  Gerrit root. Navigation derives the Gerrit root from that installed-plugin URL before adding
+  screen or Change paths. Native clicks verified a non-root `/r` deployment. CDN-hosted plugin
+  navigation is not qualified.
+- `post/send` attempted to parse a successful empty 204 response as prefixed JSON and rejected
+  after the server had already committed the mutation. Use public `fetch('POST', ...)` and
+  check the native Response's success status instead. No mutation retry or XSRF bypass was
+  introduced. Real read/archive actions now refresh successfully after 204 responses.
