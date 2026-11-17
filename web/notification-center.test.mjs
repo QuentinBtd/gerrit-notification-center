@@ -23,8 +23,7 @@ async function harness({loggedIn=true,fail=false,failSave=false,fakePolling=fals
     throw Error('Response payload is not prefixed json. Payload: ');
   },fetch:async(method,url,payload)=>{
     assert.equal(method,'POST');calls.push(['post',url,payload]);
-    if(failSave) throw Error('private mutation detail');
-    return new w.Response(null,{status:204});
+    return new w.Response(failSave?'private mutation detail':null,{status:failSave?500:204});
   }};
   const plugin={url:()=> 'https://review.example.org/gerrit/plugins/notification-center/',restApi:()=>api,
     screen:(...a)=>registrations.push(['screen',...a]),
