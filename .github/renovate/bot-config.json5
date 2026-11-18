@@ -1,0 +1,18 @@
+// Self-hosted bot settings (global options), used only by .github/workflows/renovate.yml and
+// `mise run renovate:*`. Repository policy is in /.renovaterc.jsonc.
+{
+  platform: 'github',
+  // Never discover other repositories: the bot only ever processes this one.
+  autodiscover: false,
+  repositories: ['QuentinBtd/gerrit-notification-center'],
+  onboarding: false,
+  requireConfig: 'required',
+  // Leave gitAuthor unset: Renovate detects the personal access token owner's identity.
+  // Only the reviewed Gerrit re-pinning script may run after an upgrade.
+  allowedCommands: ['^python3 -I tools/scripts/pin_gerrit\\.py$'],
+  // Lock file updates run the tools Renovate installs itself (e.g. mise for mise.lock).
+  binarySource: 'install',
+  // Do not let repository config change these security-relevant global options.
+  allowScripts: false,
+  ignoreScripts: true,
+}

@@ -1,16 +1,25 @@
 name: Integration
+
 on:
   workflow_call:
     inputs:
       ref:
+        description: Commit to test.
         type: string
         required: true
+  schedule:
+    # Weekly run against the pinned releases, independent of code changes.
+    - cron: "17 4 * * 3"
+  workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
   acceptance:
+    name: Acceptance (Gerrit ${{ matrix.series }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -18,11 +27,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup
       - run: npm ci && npm test
-      - name: Acceptance
+      - name: In-process acceptance tests
         env:
           SERIES: ${{ matrix.series }}
         run: bash tools/scripts/test.sh acceptance "$SERIES"
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: integration-${{ matrix.series }}
+          path: bazel-testlogs/**/test.log
+          retention-days: 14
+          if-no-files-found: ignore

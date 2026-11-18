@@ -14,6 +14,14 @@ on:
         description: Commit SHA of the release.
         type: string
         required: true
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to publish (X.Y.Z to retry a stable release, X.Y.Z-rc.N for a candidate)
+        required: true
+      ref:
+        description: Commit SHA to build (stable releases must match tag vX.Y.Z)
+        required: true
 
 permissions:
   contents: read

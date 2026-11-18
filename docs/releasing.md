@@ -42,8 +42,8 @@ and canonical tool/module locks remain release qualifications; no hosted cache r
 or cache-poisoning exploit has been demonstrated here. Do not describe checksum-pinned
 plugin dependency downloads as proof of the entire toolchain's integrity.
 
-Default test policy is local-first; `/test` on a PR is an explicit hosted request, not automatic
-push/PR CI. Workflows first need to exist on the default branch. Dynamic status names include
-run ID/attempt and are not a fixed branch-protection check. A Release Please bot PR may need a
-maintainer action/comment because built-in token events do not automatically trigger other
-workflows. No protections, repository settings or credentials are changed by implementation.
+CI runs on every PR and push to `main`; check
+names are fixed (e.g. `CI / Unit tests`) and usable for branch protection. A Release Please bot
+PR is created with the built-in token, whose events do not trigger other workflows: push an
+empty commit or close/reopen it to start CI. A failed stable publication can be retried from
+**Actions → Release → Run workflow**. No protections, repository settings or credentials are changed by implementation.
