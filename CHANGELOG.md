@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/QuentinBtd/gerrit-notification-center/compare/v0.1.1...v0.2.0) (2026-11-18)
+
+
+### Features
+
+* let users replace Gerrit's own emails with plugin emails ([03cd984](https://github.com/QuentinBtd/gerrit-notification-center/commit/03cd9848b521bb8cfc11bd687807e4921f1b542e))
+* paginate the inbox and act on selected notifications ([76bdecc](https://github.com/QuentinBtd/gerrit-notification-center/commit/76bdecc46a211454e9c30ca727bf5cc34dc8dc10))
+* plugin-owned SMTP so Gerrit's own email can be turned off ([39813dc](https://github.com/QuentinBtd/gerrit-notification-center/commit/39813dc8e9bd0e330356b2ce2b210f0abfaf6a7f))
+* query subscriptions, native watches, email and browser delivery ([e8f1c86](https://github.com/QuentinBtd/gerrit-notification-center/commit/e8f1c86551e48c74311c4b4f277647fdd941052f))
+* query subscriptions, native watches, email and browser delivery ([9a1b38f](https://github.com/QuentinBtd/gerrit-notification-center/commit/9a1b38f1eee21eb7ad96790611ce932bba3964f5))
+
 ## [0.1.1](https://github.com/QuentinBtd/gerrit-notification-center/compare/v0.1.0...v0.1.1) (2026-11-18)
 
 
