@@ -42,6 +42,12 @@ run = "bash tools/scripts/package.sh"
 run = "prek install --install-hooks -t pre-commit -t commit-msg"
 [tasks."hooks:run"]
 run = "prek run --all-files --show-diff-on-failure"
+[tasks."renovate:validate"]
+run = "bash tools/scripts/renovate.sh validate"
+[tasks."renovate:dry-run"]
+run = "bash tools/scripts/renovate.sh dry-run"
+[tasks."renovate:run"]
+run = "bash tools/scripts/renovate.sh run"
 [tasks."release:plan"]
 run = "bash tools/scripts/release.sh plan"
 [tasks."release:verify"]

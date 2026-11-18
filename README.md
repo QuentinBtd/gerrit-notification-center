@@ -106,8 +106,10 @@ is denied by Gerrit's account resource. No account ID is accepted in a mutation 
 
 Conventions are adapted from `QuentinBtd/gerrit-branch-review`: Bazel 8.8.1, pinned mise,
 prek, format/lint scripts, Renovate policy, Conventional Commits and Release Please.
-Tests default to local; hosted matrix is explicit maintainer `/test` only. No PR/push test
-matrix or workflow_dispatch test trigger. Release Please retains main-push maintenance.
+CI runs on every PR and push to `main` (formatting/lint, Conventional Commits, unit tests,
+all-series build and acceptance), but every check first waits for a reviewer of the `ci`
+GitHub environment to approve the run (**Review deployments → Approve**).
+Integration also runs weekly and on demand; Renovate runs weekly (see [Renovate](docs/renovate.md)).
 
 ## Roadmap
 

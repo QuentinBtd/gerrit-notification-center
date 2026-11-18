@@ -10,6 +10,7 @@ Retain evidence outside the source tree. Never use real account data or credenti
 Use Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `ci:`); PR titles should be
 Conventional Commits too. English code, docs, commit subjects and PR descriptions.
 
-No automatic hosted test matrix runs on pushes or PRs. A maintainer may request `/test`
-on a PR; default-branch workflow activation must happen before this works for the first PR.
+CI runs on every PR and push to `main` (formatting/lint, Conventional Commits, unit tests,
+all-series build and acceptance), but every check first waits for a reviewer of the `ci`
+GitHub environment to approve the run (**Review deployments → Approve**).
 Publishing, merging and releasing require separate authorization.

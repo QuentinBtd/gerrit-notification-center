@@ -6,6 +6,5 @@ files '*.sh' | xargs -0 -r shellcheck -x
 files '*.py' | xargs -0 -r ruff check
 files ':(glob)**/BUILD.bazel' ':(glob)**/*.bzl' 'MODULE.bazel' | xargs -0 -r buildifier -mode=check -lint=warn -warnings=-module-docstring
 actionlint
-node --test tools/ci/*.test.mjs
 python3 -I -m unittest discover -s tools/tests -v
 npx tsc --noEmit

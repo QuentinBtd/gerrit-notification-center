@@ -40,6 +40,8 @@ class ReleaseGatesTest(unittest.TestCase):
                     "user.name=Fixture",
                     "-c",
                     "user.email=fixture@example.org",
+                    "-c",
+                    "commit.gpgsign=false",
                     "commit",
                     "-qm",
                     "fixture",
