@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1](https://github.com/QuentinBtd/gerrit-notification-center/compare/v0.1.0...v0.1.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* commit mise lockfile and npm tool locks ([845f330](https://github.com/QuentinBtd/gerrit-notification-center/commit/845f3304106bcdf36d7a490f944c07741ec4c47c))
+* commit mise lockfile and npm tool locks ([9750eac](https://github.com/QuentinBtd/gerrit-notification-center/commit/9750eac33e976711b243c6b0290e2325b1e07de2))
+
 ## 0.1.0 (2026-11-18)
 
 
