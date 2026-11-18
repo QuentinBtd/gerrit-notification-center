@@ -29,9 +29,6 @@ public interface NotificationStore extends AutoCloseable {
 
   void savePreferences(int account, Preferences preferences) throws SQLException;
 
-  /** Accounts with email on and replaceGerritEmails set. */
-  Set<Integer> replacingAccounts() throws SQLException;
-
   /** Every account's subscriptions, keyed by account ID. */
   Map<Integer, List<Preferences.Subscription>> subscriptions() throws SQLException;
 

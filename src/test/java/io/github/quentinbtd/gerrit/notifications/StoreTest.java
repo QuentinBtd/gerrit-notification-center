@@ -29,7 +29,7 @@ public class StoreTest {
         var s = c.createStatement();
         var r = s.executeQuery("SELECT MAX(version) FROM schema_version")) {
       assertTrue(r.next());
-      assertEquals(5, r.getInt(1));
+      assertEquals(4, r.getInt(1));
     }
   }
 
@@ -106,17 +106,17 @@ public class StoreTest {
   @Test
   public void preferencesRoundTripAndReplaceSubscriptions() throws Exception {
     try (var store = new H2Store("jdbc:h2:mem:preferences")) {
-      assertFalse(store.preferences(7).email);
+      assertTrue(store.preferences(7).email); // on by default
       assertTrue(store.preferences(7).subscriptions.isEmpty());
       var p = new Preferences();
-      p.email = true;
+      p.email = false;
       p.subscriptions =
           List.of(
               new Preferences.Subscription("project:^team/.*", List.of("NEW_CHANGE", "MERGED")),
               new Preferences.Subscription("branch:main", List.of("COMMENT")));
       store.savePreferences(7, p);
       var read = store.preferences(7);
-      assertTrue(read.email);
+      assertFalse(read.email);
       assertFalse(read.browser);
       assertEquals("project:^team/.*", read.subscriptions.get(0).query);
       assertEquals(List.of("NEW_CHANGE", "MERGED"), read.subscriptions.get(0).types);
@@ -125,14 +125,6 @@ public class StoreTest {
       store.savePreferences(7, p);
       assertEquals(1, store.preferences(7).subscriptions.size());
       assertTrue(store.preferences(8).subscriptions.isEmpty());
-      assertTrue(store.replacingAccounts().isEmpty());
-      p.replaceGerritEmails = true;
-      store.savePreferences(7, p);
-      assertTrue(store.preferences(7).replaceGerritEmails);
-      assertEquals(Set.of(7), store.replacingAccounts());
-      p.email = false; // replacing without email delivery is inert
-      store.savePreferences(7, p);
-      assertTrue(store.replacingAccounts().isEmpty());
     }
   }
 }

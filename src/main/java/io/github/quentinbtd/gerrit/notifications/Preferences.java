@@ -20,11 +20,10 @@ public final class Preferences {
     }
   }
 
-  public boolean email;
-  public boolean browser;
+  /** On by default: the plugin is the site's mailer once Gerrit's own email is off. */
+  public boolean email = true;
 
-  /** With {@link #email}: drop this account from Gerrit's own emails the plugin also covers. */
-  public boolean replaceGerritEmails;
+  public boolean browser;
 
   public List<Subscription> subscriptions = new ArrayList<>();
 }

@@ -18,7 +18,7 @@ interface Item {
 interface Page {items: Item[]; next?: number}
 interface Count {unread: number; latest: number; pollSeconds: number; browser: boolean}
 interface Subscription {query: string; types: string[]}
-interface Prefs {email: boolean; browser: boolean; replace_gerrit_emails?: boolean; subscriptions: Subscription[]}
+interface Prefs {email: boolean; browser: boolean; subscriptions: Subscription[]}
 declare const Gerrit: {install(callback: (plugin: PluginApi) => void): void};
 const path = '/accounts/self/notification-center~notifications';
 const prefsPath = '/accounts/self/notification-center~preferences';
@@ -218,9 +218,7 @@ class Inbox extends HTMLElement {
     const heading = (text: string) => {const h = document.createElement('h2'); h.textContent = text; return h;};
     const hint = (text: string) => {const p = document.createElement('p'); p.className = 'meta'; p.textContent = text; return p;};
     form.append(heading('Delivery'), hint('Notifications always appear in this inbox. Also send them by:'),
-      check('Email (to your preferred email address)', prefs.email, on => {
-        prefs.email = on; if (!on) prefs.replace_gerrit_emails = false; this.render();
-      }),
+      check('Email (to your preferred email address)', prefs.email, on => {prefs.email = on;}),
       check('Browser notification (while a Gerrit tab is open)', prefs.browser, async (on, box) => {
         prefs.browser = on;
         if (!on || typeof Notification === 'undefined' || Notification.permission === 'granted') return;
@@ -229,10 +227,6 @@ class Inbox extends HTMLElement {
           this.message = 'Browser notifications are blocked for this site in your browser settings.'; this.render();
         }
       }));
-    const replace = check('Replace Gerrit\'s own emails for review requests, new patchsets, merged and abandoned changes',
-      !!prefs.replace_gerrit_emails, on => {prefs.replace_gerrit_emails = on;});
-    replace.className = 'nested'; replace.querySelector('input')!.disabled ||= !prefs.email;
-    form.append(replace, hint('Comments and other Gerrit emails are unchanged. Changes where you are only CC are not covered. With HTML email, Gerrit still sends its copy when you are its only HTML recipient.'));
     const native = document.createElement('a'); native.href = this.rootUrl('settings/#Notifications'); native.textContent = 'Gerrit watched projects';
     const intro = hint('Get notified about any change matching a change search query, e.g. project:^team/.* branch:main -is:wip. Your ');
     intro.append(native, ' keep notifying here too.');
@@ -297,7 +291,6 @@ button[aria-pressed=true]{background:var(--selection-background-color,rgba(25,10
 .settings{padding:4px 16px 16px}
 .settings h2{font-size:var(--font-size-h3,16px);margin:16px 0 4px}
 .settings label{display:flex;align-items:center;gap:6px;padding:3px 0}
-.settings .nested{padding-left:24px}
 .settings .bar{border:0;background:none;padding:12px 0 0}
 .sub{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border-color)}
 .sub input[type=text]{flex:1 1 20rem;font:inherit;color:inherit;background:var(--background-color-primary);border:1px solid var(--border-color);border-radius:6px;padding:5px 8px}

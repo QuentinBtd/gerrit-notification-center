@@ -8,6 +8,7 @@ import com.google.gerrit.acceptance.TestPlugin;
 import com.google.gerrit.acceptance.config.GerritConfig;
 import com.google.gerrit.acceptance.testsuite.project.ProjectOperations;
 import com.google.gerrit.acceptance.testsuite.request.RequestScopeOperations;
+import com.google.gerrit.entities.Address;
 import com.google.gerrit.entities.EmailHeader;
 import com.google.gerrit.entities.Permission;
 import com.google.gerrit.extensions.api.changes.ReviewInput;
@@ -15,16 +16,22 @@ import com.google.gerrit.extensions.client.GeneralPreferencesInfo;
 import com.google.gerrit.extensions.client.ProjectWatchInfo;
 import com.google.gerrit.extensions.common.ChangeInput;
 import com.google.gerrit.extensions.registration.DynamicSet;
-import com.google.gerrit.mail.MailHeader;
 import com.google.gerrit.server.group.SystemGroupBackend;
 import com.google.gerrit.server.validators.OutgoingEmailValidationListener;
 import com.google.gerrit.server.validators.ValidationException;
-import com.google.gerrit.testing.FakeEmailSender;
 import com.google.gson.JsonParser;
 import com.google.inject.AbstractModule;
 import com.google.inject.Inject;
+import com.google.inject.util.Modules;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Base64;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.Test;
@@ -39,13 +46,42 @@ public class PluginIT extends LightweightPluginDaemonTest {
    * worker on {@code hold}, and rejects when {@code reject} was set before the message arrived.
    */
   public static final class TestModule extends AbstractModule {
+    /** Captures plugin email instead of talking SMTP. */
+    static final class FakeTransport implements MailTransport {
+      record Sent(Address from, Address to, String raw) {
+        String body() {
+          return new String(
+              Base64.getMimeDecoder().decode(raw.split("\r\n\r\n", 2)[1].trim()),
+              StandardCharsets.UTF_8);
+        }
+      }
+
+      final List<Sent> sent = new CopyOnWriteArrayList<>();
+
+      @Override
+      public boolean configured() {
+        return true;
+      }
+
+      @Override
+      public void send(Address from, Collection<Address> to, String message) {
+        for (var rcpt : to) sent.add(new Sent(from, rcpt, message));
+      }
+    }
+
+    static final FakeTransport MAIL = new FakeTransport();
     static volatile boolean reject;
+
+    /** When set, a matching plugin email gets a rewritten header map and this recipient. */
+    static volatile String redirectTo;
+
     static volatile String target;
     static volatile CountDownLatch seen = new CountDownLatch(1), hold;
 
     @Override
     protected void configure() {
-      install(new Module());
+      install(
+          Modules.override(new Module()).with(b -> b.bind(MailTransport.class).toInstance(MAIL)));
       DynamicSet.bind(binder(), OutgoingEmailValidationListener.class)
           .toInstance(
               args -> {
@@ -55,6 +91,13 @@ public class PluginIT extends LightweightPluginDaemonTest {
                     || t == null
                     || !(args.headers.get("Subject") instanceof EmailHeader.StringEmailHeader h)
                     || !h.getString().contains(t)) return;
+                String redirect = redirectTo;
+                if (redirect != null) {
+                  var rewritten = new LinkedHashMap<>(args.headers);
+                  rewritten.put("X-Policy", new EmailHeader.StringEmailHeader("rewritten"));
+                  args.headers = rewritten;
+                  args.smtpRcptTo = new HashSet<>(Set.of(Address.parse(redirect)));
+                }
                 seen.countDown();
                 var waitFor = hold;
                 try {
@@ -70,6 +113,7 @@ public class PluginIT extends LightweightPluginDaemonTest {
   private static void resetHook() {
     TestModule.reject = false;
     TestModule.target = null;
+    TestModule.redirectTo = null;
     var h = TestModule.hold;
     TestModule.hold = null;
     if (h != null) h.countDown();
@@ -89,14 +133,18 @@ public class PluginIT extends LightweightPluginDaemonTest {
         .size();
   }
 
-  private List<FakeEmailSender.Message> pluginMails(String email) {
-    return sender.getMessages().stream()
+  private List<TestModule.FakeTransport.Sent> mails(String email, String reason) {
+    return TestModule.MAIL.sent.stream()
         .filter(
             m ->
-                m.headers().get("Subject") instanceof EmailHeader.StringEmailHeader h
-                    && h.getString().contains("[Gerrit] New change: " + project.get() + " #")
-                    && m.rcpt().stream().anyMatch(a -> a.email().equals(email)))
+                m.to().email().equals(email)
+                    && m.body().startsWith(reason + " by ")
+                    && m.body().contains(" on " + project.get() + " #"))
         .toList();
+  }
+
+  private List<TestModule.FakeTransport.Sent> pluginMails(String email) {
+    return mails(email, "New change");
   }
 
   /**
@@ -126,7 +174,7 @@ public class PluginIT extends LightweightPluginDaemonTest {
     TestModule.hold = new CountDownLatch(1);
     userRestSession.put(PREFS, subscribedToNewChanges(true)).assertOK();
     try {
-      sender.clear();
+      TestModule.MAIL.sent.clear();
       createChange(); // A: the worker blocks in the validator while sending it
       await(TestModule.seen);
       createChange(); // B: queued behind A while the user still has email enabled
@@ -153,16 +201,18 @@ public class PluginIT extends LightweightPluginDaemonTest {
   }
 
   @Test
-  @GerritConfig(name = "sendemail.from", value = "Notifications <notify@example.com>")
+  @GerritConfig(
+      name = "plugin.notification-center.from",
+      value = "Notifications <notify@example.com>")
   public void emailUsesConfiguredSenderAndHonorsOutgoingValidators() throws Exception {
     userRestSession.put(PREFS, subscribedToNewChanges(true)).assertOK();
     try {
-      sender.clear();
+      TestModule.MAIL.sent.clear();
       createChange();
       awaitPluginMails(user.email(), 1);
       var mail = pluginMails(user.email()).get(0);
       assertThat(mail.from().email()).isEqualTo("notify@example.com");
-      assertThat(mail.rcpt().stream().map(a -> a.email()).toList()).containsExactly(user.email());
+      assertThat(mail.raw()).contains("X-Gerrit-MessageType: notification-center");
       assertThat(mail.body()).contains("/c/" + project.get() + "/+/");
       TestModule.seen = new CountDownLatch(1);
       TestModule.reject = true;
@@ -202,124 +252,88 @@ public class PluginIT extends LightweightPluginDaemonTest {
     // real Gerrit resolves it from the path info, which excludes the query string.
   }
 
-  private List<FakeEmailSender.Message> mails(String messageType, String email) {
-    return sender.getMessages().stream()
-        .filter(
-            m ->
-                m.headers().get(MailHeader.MESSAGE_TYPE.fieldName())
-                        instanceof EmailHeader.StringEmailHeader h
-                    && h.getString().equals(messageType)
-                    && m.rcpt().stream().anyMatch(a -> a.email().equals(email)))
-        .toList();
-  }
-
-  private void replaceGerritEmails(boolean on) throws Exception {
-    var prefs = new Preferences();
-    prefs.email = on;
-    prefs.replaceGerritEmails = on;
-    userRestSession.put(PREFS, prefs).assertOK();
-  }
-
-  private void awaitPluginMail(String email) throws Exception {
-    for (int i = 0; i < 400 && mails("notification-center", email).isEmpty(); i++) Thread.sleep(50);
-    assertThat(mails("notification-center", email)).isNotEmpty();
-  }
-
   private void addReviewers(int number, String... emails) throws Exception {
     var review = new ReviewInput();
     for (String e : emails) review = review.reviewer(e);
-    gApi.changes().id(project.get(), number).current().review(review); // one email to all
+    gApi.changes().id(project.get(), number).current().review(review);
   }
 
-  private void hideProject() throws Exception {
-    projectOperations
-        .project(project)
-        .forUpdate()
-        .add(block(Permission.READ).ref("refs/*").group(SystemGroupBackend.REGISTERED_USERS))
-        .update();
+  private void awaitMails(String email, String reason, int expected) throws Exception {
+    for (int i = 0; i < 400 && mails(email, reason).size() < expected; i++) Thread.sleep(50);
+    assertThat(mails(email, reason).size()).isEqualTo(expected);
   }
 
   @Test
-  public void replacingGerritEmailsDropsOnlyCoveredNativeMailForThatUser() throws Exception {
-    var other = accountCreator.create("nc-other", "nc-other@example.com", "Other", null);
-    var inert = new Preferences();
-    inert.replaceGerritEmails = true;
-    userRestSession.put(PREFS, inert).assertBadRequest(); // needs email delivery
-    replaceGerritEmails(true);
+  public void validatorRewrittenHeadersAndRecipientsAreWhatGetsSent() throws Exception {
+    userRestSession.put(PREFS, subscribedToNewChanges(true)).assertOK();
+    TestModule.target = "New change: " + project.get() + " #";
+    TestModule.redirectTo = "policy@example.com";
     try {
-      int number = createChange().getChange().getId().get();
-      sender.clear();
-      addReviewers(number, user.email(), other.email());
-      assertThat(mails("newchange", other.email())).isNotEmpty(); // others keep Gerrit's email
-      assertThat(mails("newchange", user.email())).isEmpty();
-      awaitPluginMail(user.email()); // plugin's instead
-      // Comments are never replaced (Gerrit also uses that email for ready-for-review).
-      sender.clear();
-      gApi.changes().id(project.get(), number).current().review(new ReviewInput().message("hi"));
-      assertThat(mails("comment", user.email())).isNotEmpty();
-      // Without the option the same user gets Gerrit's email again.
-      replaceGerritEmails(false);
-      sender.clear();
-      gApi.changes().id(project.get(), number).abandon();
-      assertThat(mails("abandon", user.email())).isNotEmpty();
+      TestModule.MAIL.sent.clear();
+      createChange();
+      awaitPluginMails("policy@example.com", 1);
+      assertThat(pluginMails("policy@example.com").get(0).raw()).contains("X-Policy: rewritten");
+      assertThat(pluginMails(user.email())).isEmpty();
     } finally {
-      replaceGerritEmails(false);
-      hideProject();
+      resetHook();
+      userRestSession.put(PREFS, new Preferences()).assertOK();
+      projectOperations
+          .project(project)
+          .forUpdate()
+          .add(block(Permission.READ).ref("refs/*").group(SystemGroupBackend.REGISTERED_USERS))
+          .update();
     }
   }
 
   @Test
-  public void readyForReviewEmailStillReachesReplacingReviewer() throws Exception {
-    // A second HTML reviewer keeps the email non-empty, so the filter really runs on it.
-    var other = accountCreator.create("nc-ready", "nc-ready@example.com", "Ready", null);
-    replaceGerritEmails(true);
+  public void deactivatedReviewerGetsNoEmail() throws Exception {
+    var gone = accountCreator.create("nc-gone", "nc-gone@example.com", "Gone", null);
+    userRestSession.put(PREFS, new Preferences()).assertOK();
     try {
       int number = createChange().getChange().getId().get();
-      gApi.changes().id(project.get(), number).setWorkInProgress();
-      addReviewers(number, user.email(), other.email());
-      sender.clear();
-      gApi.changes().id(project.get(), number).setReadyForReview();
-      assertThat(mails("comment", user.email())).isNotEmpty();
+      addReviewers(number, gone.email(), user.email());
+      awaitMails(gone.email(), "Review requested", 1); // active: emailed
+      gApi.accounts().id(gone.id().get()).setActive(false);
+      TestModule.MAIL.sent.clear();
+      gApi.changes().id(project.get(), number).abandon(); // owner + both reviewers
+      awaitMails(user.email(), "Abandoned", 1);
+      // FIFO worker: once user's next email arrives, gone's abandon email was already handled.
+      addReviewers(createChange().getChange().getId().get(), user.email());
+      awaitMails(user.email(), "Review requested", 1);
+      assertThat(mails(gone.email(), "Abandoned")).isEmpty();
     } finally {
-      replaceGerritEmails(false);
-      hideProject();
+      gApi.accounts().id(gone.id().get()).setActive(true);
+      projectOperations
+          .project(project)
+          .forUpdate()
+          .add(block(Permission.READ).ref("refs/*").group(SystemGroupBackend.REGISTERED_USERS))
+          .update();
     }
   }
 
   @Test
-  public void filteringNeverCancelsAPlainTextUsersEmail() throws Exception {
-    var plain = accountCreator.create("nc-plain", "nc-plain@example.com", "Plain", null);
-    requestScopeOperations.setApiUser(plain.id());
+  public void emailIsOnByDefaultExceptForGerritDisabledEmailStrategy() throws Exception {
+    var quiet = accountCreator.create("nc-quiet", "nc-quiet@example.com", "Quiet", null);
+    requestScopeOperations.setApiUser(quiet.id());
     var gp = gApi.accounts().self().getPreferences();
-    gp.emailFormat = GeneralPreferencesInfo.EmailFormat.PLAINTEXT;
+    gp.emailStrategy = GeneralPreferencesInfo.EmailStrategy.DISABLED;
     gApi.accounts().self().setPreferences(gp);
     requestScopeOperations.setApiUser(admin.id());
-    replaceGerritEmails(true);
+    userRestSession.put(PREFS, new Preferences()).assertOK(); // defaults: email on
     try {
-      int number = createChange().getChange().getId().get();
-      sender.clear();
-      // HTML pass: only `user` (replacing); plain-text pass: only `plain`.
-      addReviewers(number, user.email(), plain.email());
-      assertThat(mails("newchange", plain.email())).isNotEmpty();
+      TestModule.MAIL.sent.clear();
+      addReviewers(createChange().getChange().getId().get(), quiet.email(), user.email());
+      awaitMails(user.email(), "Review requested", 1);
+      // FIFO worker: once user's second email arrives, quiet's would have been sent already.
+      addReviewers(createChange().getChange().getId().get(), user.email());
+      awaitMails(user.email(), "Review requested", 2);
+      assertThat(mails(quiet.email(), "Review requested")).isEmpty();
     } finally {
-      replaceGerritEmails(false);
-      hideProject();
-    }
-  }
-
-  @Test
-  @GerritConfig(name = "sendemail.html", value = "false")
-  public void withoutHtmlEmailASoleReplacingRecipientGetsOnlyThePluginEmail() throws Exception {
-    replaceGerritEmails(true);
-    try {
-      int number = createChange().getChange().getId().get();
-      sender.clear();
-      addReviewers(number, user.email());
-      assertThat(mails("newchange", user.email())).isEmpty();
-      awaitPluginMail(user.email());
-    } finally {
-      replaceGerritEmails(false);
-      hideProject();
+      projectOperations
+          .project(project)
+          .forUpdate()
+          .add(block(Permission.READ).ref("refs/*").group(SystemGroupBackend.REGISTERED_USERS))
+          .update();
     }
   }
 

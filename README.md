@@ -22,7 +22,8 @@ support or a published release. See [compatibility](docs/compatibility.md).
 - **Subscriptions**: follow any change matching a change search query (`project:^team/.*
   branch:main -is:wip`), per event type, from the Notifications **Settings** tab.
 - **Delivery channels** per user (Settings tab): email and/or browser notifications, in addition
-  to the inbox. Email reuses Gerrit's `[sendemail]` SMTP; browser notifications use the Web
+  to the inbox. Email uses the plugin's own SMTP settings, so Gerrit's emails can be turned off;
+  browser notifications use the Web
   Notification API while a Gerrit tab is open (no push service, nothing when every tab is closed).
 - Keyset pagination, state/type filters, recipient-scoped deduplication and retention.
 - Authenticated own-account REST API. Live Change READ permission checks also protect counts
@@ -74,51 +75,39 @@ Add to `$GERRIT_SITE/etc/gerrit.config` and restart/reload the plugin:
     eventABANDONED = true
 ```
 
-`email = false` disables plugin emails site-wide whatever users choose. Emails need no plugin
-SMTP section: they are sent through Gerrit's own outgoing-email pipeline, so `[sendemail]`
-(SMTP, `from`, `allowrcpt`/`denyrcpt`), site OutgoingEmailValidationListeners and each user's
-email strategy apply as for Gerrit's emails. They go only to the recipient's preferred email,
-only while they can still read the Change. Users opt in; by default plugin emails are sent in
-addition to Gerrit's own emails.
+### Email
 
-To avoid duplicates, a user can also tick **Replace Gerrit's own emails** (Settings tab, needs
-Email): the plugin then removes that user from Gerrit's emails of the covered kinds — review
-request/new change (`newchange`), `newpatchset`, `merged`, `abandon` — through an outgoing-email
-validator, and the plugin's email takes their place. Comment emails are never replaced (Gerrit
-also uses them for ready-for-review and vote-only reviews, which the plugin does not deliver), so
-comments can still arrive twice. Other Gerrit emails (attention set, restore, revert,
-reviewer/vote removal, account and security mail) are never touched; other recipients are
-unaffected. A kind is only replaced while its plugin event types are enabled and `email = true`.
-
-Limits:
-
-- Changes where the user is only CC are not covered by the plugin, so they get no email for them.
-- With HTML email (`sendemail.html`, the default), when every HTML recipient of a Gerrit email has
-  opted in (typically a sole reviewer), Gerrit's email is kept: rejecting it would also cancel
-  Gerrit's separate plain-text copy to other users. Those users get both emails. With
-  `sendemail.html = false` this case is replaced as well.
-- Users whose Gerrit email format is *Plain text* on a site with HTML email cannot enable it
-  (Gerrit's plain-text pass cannot be filtered). Sending is asynchronous on one worker with a bounded
-queue (1000); when SMTP is too slow to keep up, extra emails are dropped with a warning and
-inbox rows are never affected.
-
-Email therefore only needs Gerrit's usual mail setup, for example:
+The plugin is the site's mailer for notifications: it has its own SMTP settings in its section,
+so Gerrit's own emails can be switched off entirely.
 
 ```ini
 [sendemail]
-    enable = true
-    smtpServer = smtp.example.com
-    smtpServerPort = 587
-    smtpEncryption = tls
-    smtpUser = gerrit
-    from = Gerrit Code Review <gerrit@example.com>
+    enable = false          # Gerrit sends nothing itself
 [plugin "notification-center"]
-    email = true
+    email = true            # default
+    smtpServer = smtp.example.com
+    smtpServerPort = 587    # default: 25, 465 with ssl, 587 with tls
+    smtpEncryption = tls    # none (default) | ssl | tls (STARTTLS)
+    smtpUser = gerrit       # omit for an unauthenticated relay
+    from = Gerrit Code Review <gerrit@example.com>   # default: Gerrit's server identity
 ```
 
-`smtpPass` belongs in `etc/secure.config`. With `sendemail.enable = false` no plugin email is sent
-either, and users whose Gerrit email strategy is *Disabled* (`Settings → Preferences`) never get
-plugin emails even if they opt in. Subjects look like `[Gerrit] New change: project #123`.
+`smtpPass` goes in `etc/secure.config` under `[plugin "notification-center"]`. Without
+`smtpServer` (or with `email = false`) no plugin email is sent. TLS certificates must be valid
+for `smtpServer`.
+
+- Every user gets emails for their inbox notifications by default; they can turn it off in
+  Notifications → Settings. Users whose Gerrit email strategy is *Disabled*
+  (`Settings → Preferences`) get none.
+- Emails go to the user's preferred address, only while they can still read the Change, as plain
+  text, with subjects like `[Gerrit] New change: project #123`.
+- Site OutgoingEmailValidationListeners still apply (message class `notification-center`).
+- Sending is asynchronous on one worker with a bounded queue (1000): when SMTP is too slow,
+  extra emails are dropped with a warning and inbox rows are never affected.
+- With `sendemail.enable = false`, Gerrit's other emails stop too: new email address
+  verification, account/key/token notices, attention-set, restore/revert and CC-only emails.
+  Keep `sendemail` on if you need those (users then also get Gerrit's change emails, so they may
+  turn plugin email off).
 
 Storage paths resolve against the Gerrit site; absolute local paths are allowed. The path is
 an H2 file basename (the database appends `.mv.db`), not a JDBC URL. Semicolons are rejected.
@@ -143,7 +132,7 @@ POST /accounts/self/notification-center~notifications {"action":"unsave","id":12
 POST /accounts/self/notification-center~notifications {"action":"read-all"}
 GET  /accounts/self/notification-center~preferences
 PUT  /accounts/self/notification-center~preferences
-     {"email":true,"browser":false,"replace_gerrit_emails":false,"subscriptions":[{"query":"project:^team/.*","types":["NEW_CHANGE","MERGED"]}]}
+     {"email":true,"browser":false,"subscriptions":[{"query":"project:^team/.*","types":["NEW_CHANGE","MERGED"]}]}
 ```
 
 Subscription `types` are `NEW_CHANGE`, `PATCHSET`, `COMMENT`, `MERGED`, `ABANDONED`. Queries are

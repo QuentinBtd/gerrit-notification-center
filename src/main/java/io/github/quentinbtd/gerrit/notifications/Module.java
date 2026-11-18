@@ -6,7 +6,6 @@ import com.google.gerrit.extensions.restapi.RestApiModule;
 import com.google.gerrit.extensions.webui.*;
 import com.google.gerrit.lifecycle.LifecycleModule;
 import com.google.gerrit.server.account.AccountResource;
-import com.google.gerrit.server.validators.OutgoingEmailValidationListener;
 import com.google.inject.*;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -19,7 +18,7 @@ public final class Module extends AbstractModule {
     DynamicSet.bind(binder(), RevisionCreatedListener.class).to(GerritListeners.class);
     DynamicSet.bind(binder(), ChangeMergedListener.class).to(GerritListeners.class);
     DynamicSet.bind(binder(), ChangeAbandonedListener.class).to(GerritListeners.class);
-    DynamicSet.bind(binder(), OutgoingEmailValidationListener.class).to(NativeEmailFilter.class);
+    bind(MailTransport.class).to(SmtpTransport.class);
     DynamicSet.bind(binder(), WebUiPlugin.class)
         .toInstance(new JavaScriptPlugin("notification-center.js?v=" + frontendVersion()));
     install(
