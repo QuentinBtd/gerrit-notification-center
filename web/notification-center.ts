@@ -3,7 +3,7 @@
 interface RestApi {
   getLoggedIn(): Promise<boolean>;
   get<T>(url: string): Promise<T>;
-  fetch(method: 'POST', url: string, payload?: object): Promise<Response>;
+  fetch(method: 'POST' | 'PUT', url: string, payload?: object): Promise<Response>;
 }
 interface PluginApi {
   url(): string;
@@ -11,22 +11,44 @@ interface PluginApi {
   screen(name: string, component: string): unknown;
   registerCustomComponent(endpoint: string, component: string): unknown;
 }
-interface Notification {
+interface Item {
   id: number; type: string; actor: number; project: string; change: number;
   url: string; created_at: number; read_at?: number; archived_at?: number; saved_at?: number;
 }
-interface Page {items: Notification[]; next?: number}
-interface Count {unread: number; pollSeconds: number}
+interface Page {items: Item[]; next?: number}
+interface Count {unread: number; latest: number; pollSeconds: number; browser: boolean}
+interface Subscription {query: string; types: string[]}
+interface Prefs {email: boolean; browser: boolean; subscriptions: Subscription[]}
 declare const Gerrit: {install(callback: (plugin: PluginApi) => void): void};
 const path = '/accounts/self/notification-center~notifications';
+const prefsPath = '/accounts/self/notification-center~preferences';
+const lastSeenKey = 'notification-center-last-browser-id';
+// Same-page signal from the Notifications screen to the header bell after a successful change.
+const changedEvent = 'notification-center-changed';
+const announceChange = () => document.dispatchEvent(new Event(changedEvent));
 // type -> [Material icon, reason label]
 const types: Record<string, [string, string]> = {
   REVIEWER_ADDED: ['person_add', 'Review requested'], MENTION: ['alternate_email', 'Mentioned'],
-  COMMENT: ['chat_bubble', 'Comment'], PATCHSET: ['upload', 'New patchset'],
+  COMMENT: ['chat_bubble', 'Comment'], NEW_CHANGE: ['add_circle', 'New change'], PATCHSET: ['upload', 'New patchset'],
   MERGED: ['merge', 'Merged'], ABANDONED: ['block', 'Abandoned'],
 };
+const subscribable = ['NEW_CHANGE', 'PATCHSET', 'COMMENT', 'MERGED', 'ABANDONED'];
 // UI tab -> REST state
-const tabs: [string, string, string][] = [['all', 'Inbox', 'inbox'], ['saved', 'Saved', 'bookmark'], ['archived', 'Done', 'check']];
+const tabs: [string, string, string][] = [['all', 'Inbox', 'inbox'], ['saved', 'Saved', 'bookmark'], ['archived', 'Done', 'check'], ['settings', 'Settings', 'settings']];
+// Actor account ID -> display name, resolved once per page load via Gerrit's account API.
+const names = new Map<number, string>(), pending = new Set<number>();
+const actorName = (id: number) => names.get(id) ?? `Account ${id}`;
+// Never awaited: rows show "Account N" at once and `resolved(id)` patches them as names arrive.
+function loadNames(api: RestApi, ids: number[], resolved: (id: number) => void): void {
+  for (const id of new Set(ids)) {
+    if (names.has(id) || pending.has(id)) continue;
+    pending.add(id);
+    api.get<{display_name?: string; name?: string; username?: string}>(`/accounts/${id}`)
+      .then(a => {names.set(id, a.display_name || a.name || a.username || `Account ${id}`);},
+        () => {names.set(id, `Account ${id}`);}) // not visible or deleted: keep the ID, don't refetch
+      .finally(() => {pending.delete(id); resolved(id);});
+  }
+}
 const icon = (name: string) => {const i = document.createElement('gr-icon'); i.setAttribute('icon', name); return i;};
 function ago(ms: number): string {
   const s = (ms - Date.now()) / 1000, f = new Intl.RelativeTimeFormat(undefined, {numeric: 'auto'});
@@ -38,7 +60,7 @@ function ago(ms: number): string {
 class Inbox extends HTMLElement {
   protected bellOnly = false;
   private apiPlugin?: PluginApi;
-  private rows: Notification[] = [];
+  private rows: Item[] = [];
   private next?: number;
   private unread = 0;
   private state = 'all';
@@ -50,14 +72,25 @@ class Inbox extends HTMLElement {
   private poll = 45000;
   private loggedIn = false;
   private stale = false; // a refresh was requested while another was running
+  private prefs?: Prefs;
   constructor() {super(); this.attachShadow({mode: 'open'});}
   set plugin(plugin: PluginApi) {
     this.apiPlugin = plugin;
     if (this.isConnected) void this.refresh();
   }
   get plugin(): PluginApi | undefined {return this.apiPlugin;}
-  connectedCallback() {this.render(); if (this.plugin) void this.refresh();}
-  disconnectedCallback() {this.generation++; this.busy = false; this.stale = false; clearTimeout(this.timer);}
+  private readonly sync = () => {if (document.visibilityState !== 'hidden') void this.refresh();};
+  connectedCallback() {
+    this.render(); if (this.plugin) void this.refresh();
+    // Background tabs throttle the poll timer: catch up as soon as the tab is visible again.
+    document.addEventListener('visibilitychange', this.sync);
+    if (this.bellOnly) document.addEventListener(changedEvent, this.sync);
+  }
+  disconnectedCallback() {
+    this.generation++; this.busy = false; this.stale = false; clearTimeout(this.timer);
+    document.removeEventListener('visibilitychange', this.sync);
+    document.removeEventListener(changedEvent, this.sync);
+  }
   private rootUrl(relative: string): string {
     const gerritRoot = new URL('../../', this.plugin!.url());
     return new URL(relative.replace(/^\//, ''), gerritRoot).toString();
@@ -77,11 +110,18 @@ class Inbox extends HTMLElement {
       if (!loggedIn) {this.rows = []; this.unread = 0; this.message = 'Sign in to view notifications.'; return;}
       const count = await api.get<Count>(path + '?count=true');
       let page: Page | undefined;
-      if (!this.bellOnly) {
+      if (this.bellOnly) await this.notifyBrowser(api, count);
+      else if (this.state === 'settings') this.prefs ??= await api.get<Prefs>(prefsPath);
+      else {
         const q = new URLSearchParams({state: this.state, limit: '50'});
         if (this.type) q.set('type', this.type);
         if (append && this.next) q.set('before', String(this.next));
         page = await api.get<Page>(path + '?' + q);
+        // Patch only the actor text: a full render would drop focus (e.g. while editing Settings).
+        loadNames(api, page.items.map(n => n.actor), id => {
+          for (const m of this.shadowRoot!.querySelectorAll<HTMLElement>(`[data-actor="${id}"]`))
+            m.textContent = `${m.dataset.reason} · ${actorName(id)}`;
+        });
       }
       if (generation !== this.generation || !this.isConnected) return;
       this.unread = count.unread;
@@ -95,7 +135,8 @@ class Inbox extends HTMLElement {
         this.busy = false; this.render();
         // Responses started before the request may predate a save, so re-read right away.
         if (this.stale) void this.refresh();
-        else this.timer = setTimeout(() => void this.refresh(), this.poll);
+        // No polling on Settings: a re-render would drop unsaved edits and focus.
+        else if (this.bellOnly || this.state !== 'settings') this.timer = setTimeout(() => void this.refresh(), this.poll);
       }
     }
   }
@@ -107,6 +148,7 @@ class Inbox extends HTMLElement {
       const response = await this.plugin.restApi().fetch('POST', path, {action, ...(id === undefined ? {} : {id})});
       if (!response.ok) throw new Error('Unable to save notification');
       if (generation !== this.generation || !this.isConnected) return;
+      announceChange();
       this.busy = false; await this.refresh();
     } catch {
       if (generation === this.generation && this.isConnected) {
@@ -116,15 +158,95 @@ class Inbox extends HTMLElement {
     }
   }
   // Opening a change must mark it read even while a refresh or another save is in flight.
-  private async markOpened(n: Notification): Promise<void> {
+  private async markOpened(n: Item): Promise<void> {
     try {
       const response = await this.plugin!.restApi().fetch('POST', path, {action: 'read', id: n.id});
       if (!response.ok) throw new Error('Unable to save notification');
       n.read_at = Date.now();
+      announceChange(); // also when opening the Change already navigated away from this screen
       if (this.isConnected) {this.render(); void this.refresh();}
     } catch {
       if (this.isConnected) {this.message = 'Unable to save. Retry or refresh notifications.'; this.render();}
     }
+  }
+  // Shows OS notifications for unread items newer than the last one shown in this browser.
+  private async notifyBrowser(api: RestApi, count: Count): Promise<void> {
+    if (!count.browser || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    const save = (id: number) => {try {localStorage.setItem(lastSeenKey, String(id));} catch { /* storage blocked */ }};
+    let stored: string | null = null;
+    try {stored = localStorage.getItem(lastSeenKey);} catch { /* storage blocked */ }
+    // First poll in this browser: record a starting point (0 for an empty inbox), no burst of old items.
+    if (stored === null) {save(count.latest); return;}
+    const last = Number(stored) || 0;
+    if (count.latest <= last) return;
+    try {
+      const page = await api.get<Page>(path + '?state=unread&limit=10');
+      loadNames(api, page.items.map(n => n.actor), () => {}); // alerts use whatever is known now
+      let newest = count.latest;
+      for (const n of page.items.filter(n => n.id > last).reverse()) {
+        newest = Math.max(newest, n.id); // may be newer than the count if it arrived in between
+        const [, reason] = types[n.type] ?? ['', n.type];
+        // The tag lets the browser collapse duplicates shown by several open Gerrit tabs.
+        const shown = new Notification(`${reason}: ${n.project} #${n.change}`, {body: actorName(n.actor), tag: `notification-center-${n.id}`});
+        if (/^\/c\//.test(n.url)) shown.onclick = () => {window.focus(); location.href = this.rootUrl(n.url);};
+      }
+      save(newest); // only once shown: a failed fetch is retried on the next poll
+    } catch { /* keep the bell working; retry next poll */ }
+  }
+  private async savePrefs(): Promise<void> {
+    if (!this.prefs || this.busy) return;
+    this.busy = true; this.message = ''; this.render();
+    try {
+      const response = await this.plugin!.restApi().fetch('PUT', prefsPath, this.prefs);
+      // 400 carries our own validation text (e.g. an invalid query); other failures stay generic.
+      if (response.status === 400) this.message = (await response.text()).trim();
+      else if (!response.ok) throw new Error('save failed');
+      else {this.prefs = await this.plugin!.restApi().get<Prefs>(prefsPath); this.message = 'Saved.';}
+    } catch {
+      this.message = 'Unable to save settings. Retry or check your session.';
+    } finally {this.busy = false; if (this.isConnected) this.render();}
+  }
+  private renderSettings(panel: HTMLElement) {
+    const prefs = this.prefs;
+    if (!prefs) {const e = document.createElement('p'); e.className = 'empty'; e.setAttribute('role', 'status'); e.textContent = this.busy ? 'Loading…' : this.message; panel.append(e); return;}
+    const form = document.createElement('div'); form.className = 'settings';
+    const check = (label: string, checked: boolean, change: (on: boolean, box: HTMLInputElement) => void) => {
+      const l = document.createElement('label'); const box = document.createElement('input'); box.type = 'checkbox';
+      box.checked = checked; box.disabled = this.busy; box.onchange = () => change(box.checked, box);
+      l.append(box, label); return l;
+    };
+    const heading = (text: string) => {const h = document.createElement('h2'); h.textContent = text; return h;};
+    const hint = (text: string) => {const p = document.createElement('p'); p.className = 'meta'; p.textContent = text; return p;};
+    form.append(heading('Delivery'), hint('Notifications always appear in this inbox. Also send them by:'),
+      check('Email (to your preferred email address)', prefs.email, on => {prefs.email = on;}),
+      check('Browser notification (while a Gerrit tab is open)', prefs.browser, async (on, box) => {
+        prefs.browser = on;
+        if (!on || typeof Notification === 'undefined' || Notification.permission === 'granted') return;
+        if (await Notification.requestPermission() !== 'granted') {
+          prefs.browser = box.checked = false;
+          this.message = 'Browser notifications are blocked for this site in your browser settings.'; this.render();
+        }
+      }));
+    const native = document.createElement('a'); native.href = this.rootUrl('settings/#Notifications'); native.textContent = 'Gerrit watched projects';
+    const intro = hint('Get notified about any change matching a change search query, e.g. project:^team/.* branch:main -is:wip. Your ');
+    intro.append(native, ' keep notifying here too.');
+    form.append(heading('Subscriptions'), intro);
+    prefs.subscriptions.forEach((sub, i) => {
+      const row = document.createElement('div'); row.className = 'sub';
+      const q = document.createElement('input'); q.type = 'text'; q.value = sub.query; q.placeholder = 'project:^team/.* branch:main';
+      q.setAttribute('aria-label', 'Subscription query'); q.disabled = this.busy; q.oninput = () => {sub.query = q.value;};
+      const kinds = document.createElement('div'); kinds.className = 'kinds';
+      for (const t of subscribable) kinds.append(check(types[t][1], sub.types.includes(t), on => {sub.types = on ? [...sub.types, t] : sub.types.filter(x => x !== t);}));
+      row.append(q, kinds, this.button('delete', 'Remove subscription', () => {prefs.subscriptions.splice(i, 1); this.render();}));
+      form.append(row);
+    });
+    const actions = document.createElement('div'); actions.className = 'bar';
+    const grow = document.createElement('span'); grow.className = 'grow';
+    actions.append(this.button('add', 'Add subscription', () => {prefs.subscriptions.push({query: '', types: [...subscribable]}); this.render();}, true),
+      grow, this.button('save', 'Save settings', () => void this.savePrefs(), true));
+    form.append(actions);
+    if (this.message) {const m = document.createElement('p'); m.setAttribute('role', 'status'); m.className = 'meta'; m.textContent = this.message; form.append(m);}
+    panel.append(form);
   }
   private button(name: string, label: string, action: () => void, text = false): HTMLButtonElement {
     const b = document.createElement('button'); b.append(icon(name)); b.title = label;
@@ -166,6 +288,13 @@ button[aria-pressed=true]{background:var(--selection-background-color,rgba(25,10
 .row:hover .actions,.row:focus-within .actions{opacity:1}
 .empty{padding:48px 16px;text-align:center;color:var(--deemphasized-text-color)}
 .more{display:flex;justify-content:center;padding:8px}
+.settings{padding:4px 16px 16px}
+.settings h2{font-size:var(--font-size-h3,16px);margin:16px 0 4px}
+.settings label{display:flex;align-items:center;gap:6px;padding:3px 0}
+.settings .bar{border:0;background:none;padding:12px 0 0}
+.sub{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border-color)}
+.sub input[type=text]{flex:1 1 20rem;font:inherit;color:inherit;background:var(--background-color-primary);border:1px solid var(--border-color);border-radius:6px;padding:5px 8px}
+.kinds{display:flex;flex-wrap:wrap;gap:0 12px}
 .bell{position:relative;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:50%;color:var(--header-text-color,inherit)}
 .bell:hover{background:color-mix(in srgb,currentColor 8%,transparent)}
 .bell:active{background:color-mix(in srgb,currentColor 12%,transparent)}
@@ -185,16 +314,17 @@ button[aria-pressed=true]{background:var(--selection-background-color,rgba(25,10
       root.append(a); return;
     }
     const layout = document.createElement('div'); layout.className = 'layout';
-    const side = document.createElement('nav'); side.className = 'side'; side.setAttribute('aria-label', 'Notification folders');
+    const side = document.createElement('nav'); side.className = 'side'; side.setAttribute('aria-label', 'Item folders');
     for (const [state, label, name] of tabs) {
-      const b = this.button(name, label, () => {this.state = state; this.next = undefined; void this.refresh();}, true);
+      const b = this.button(name, label, () => {this.state = state; this.next = undefined; this.prefs = undefined; this.message = ''; void this.refresh();}, true);
       if (state === this.state || (state === 'all' && this.state === 'unread')) b.setAttribute('aria-current', 'page');
       if (state === 'all' && this.unread) {const n = document.createElement('span'); n.className = 'n'; n.textContent = String(this.unread); b.append(n);}
       side.append(b);
     }
     const panel = document.createElement('main'); panel.className = 'panel';
     layout.append(side, panel);
-    if (this.loggedIn) {
+    if (this.loggedIn && this.state === 'settings') this.renderSettings(panel);
+    else if (this.loggedIn) {
       const bar = document.createElement('div'); bar.className = 'bar';
       const type = document.createElement('select'); type.setAttribute('aria-label', 'Event type');
       for (const value of ['', ...Object.keys(types)]) {const o = document.createElement('option'); o.value = value; o.textContent = value ? types[value][1] : 'All types'; type.append(o);}
@@ -220,7 +350,8 @@ button[aria-pressed=true]{background:var(--selection-background-color,rgba(25,10
         if (/^\/c\//.test(n.url)) a.href = this.rootUrl(n.url);
         a.textContent = `${n.project} #${n.change}`;
         if (!n.read_at) a.onclick = () => void this.markOpened(n);
-        const meta = document.createElement('div'); meta.className = 'meta'; meta.textContent = `${reason} · Account ${n.actor}`;
+        const meta = document.createElement('div'); meta.className = 'meta'; meta.dataset.actor = String(n.actor); meta.dataset.reason = reason;
+        meta.textContent = `${reason} · ${actorName(n.actor)}`;
         main.append(a, meta);
         const when = document.createElement('time'); when.className = 'when';
         when.dateTime = new Date(n.created_at).toISOString(); when.title = new Date(n.created_at).toLocaleString(); when.textContent = ago(n.created_at);

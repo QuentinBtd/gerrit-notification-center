@@ -24,11 +24,17 @@ public final class GerritListeners
   private final EventRouter router;
   private final NotificationStore store;
   private final RecipientResolver resolver;
+  private final Watchers watchers;
 
   @Inject
   GerritListeners(
-      ChangeNotes.Factory notes, EventRouter router, Emails emails, NotificationStore store) {
+      ChangeNotes.Factory notes,
+      EventRouter router,
+      Emails emails,
+      NotificationStore store,
+      Watchers watchers) {
     this.notes = notes;
+    this.watchers = watchers;
     this.router = router;
     this.store = store;
     resolver =
@@ -93,6 +99,9 @@ public final class GerritListeners
       }
       if (e instanceof RevisionEvent r && r.getRevision() != null)
         discriminator += r.getRevision()._number;
+      if (e instanceof RevisionCreatedListener.Event r
+          && r.getRevision() != null
+          && Integer.valueOf(1).equals(r.getRevision()._number)) type = "NEW_CHANGE";
       if (e instanceof CommentAddedListener.Event comment) {
         String text = comment.getComment();
         mentions.addAll(resolver.mentions(text));
@@ -148,7 +157,8 @@ public final class GerritListeners
               e.getWhen().toEpochMilli(),
               reviewers,
               added,
-              mentions));
+              mentions,
+              watchers.of(type, n)));
     } catch (Exception ex) {
       // No project, subject, comment, email or exception payload in production logs.
       LOG.warning(

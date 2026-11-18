@@ -15,8 +15,15 @@ support or a published release. See [compatibility](docs/compatibility.md).
 
 - GitHub-style Inbox / Saved / Done, unread count, read/unread, save, done/undo and
   mark-all-read. Saved notifications are kept by retention.
-- Reviewer added, explicit mentions, relevant comments, new patchsets, merged and abandoned.
+- Reviewer added, explicit mentions, relevant comments, new changes, new patchsets, merged and abandoned.
 - Owner/current reviewers are followed accounts; mentions can target other registered users.
+- Gerrit's native watched projects (`Settings → Notifications`) also deliver to the inbox, evaluated
+  by Gerrit itself (filters, All-Projects inheritance). They are not replaced or modified.
+- **Subscriptions**: follow any change matching a change search query (`project:^team/.*
+  branch:main -is:wip`), per event type, from the Notifications **Settings** tab.
+- **Delivery channels** per user (Settings tab): email and/or browser notifications, in addition
+  to the inbox. Email reuses Gerrit's `[sendemail]` SMTP; browser notifications use the Web
+  Notification API while a Gerrit tab is open (no push service, nothing when every tab is closed).
 - Keyset pagination, state/type filters, recipient-scoped deduplication and retention.
 - Authenticated own-account REST API. Live Change READ permission checks also protect counts
   and mutations after access is revoked.
@@ -57,13 +64,24 @@ Add to `$GERRIT_SITE/etc/gerrit.config` and restart/reload the plugin:
     retentionDays = 90
     cleanupSeconds = 3600
     pollSeconds = 45
+    email = true
     eventREVIEWER_ADDED = true
     eventMENTION = true
     eventCOMMENT = true
+    eventNEW_CHANGE = true
     eventPATCHSET = true
     eventMERGED = true
     eventABANDONED = true
 ```
+
+`email = false` disables plugin emails site-wide whatever users choose. Emails need no plugin
+SMTP section: they are sent through Gerrit's own outgoing-email pipeline, so `[sendemail]`
+(SMTP, `from`, `allowrcpt`/`denyrcpt`), site OutgoingEmailValidationListeners and each user's
+email strategy apply as for Gerrit's emails. They go only to the recipient's preferred email,
+only while they can still read the Change. Users opt in; plugin emails are sent in addition to
+Gerrit's own emails, never instead of them. Sending is asynchronous on one worker with a bounded
+queue (1000); when SMTP is too slow to keep up, extra emails are dropped with a warning and
+inbox rows are never affected.
 
 Storage paths resolve against the Gerrit site; absolute local paths are allowed. The path is
 an H2 file basename (the database appends `.mv.db`), not a JDBC URL. Semicolons are rejected.
@@ -86,13 +104,20 @@ POST /accounts/self/notification-center~notifications {"action":"unarchive","id"
 POST /accounts/self/notification-center~notifications {"action":"save","id":123}
 POST /accounts/self/notification-center~notifications {"action":"unsave","id":123}
 POST /accounts/self/notification-center~notifications {"action":"read-all"}
+GET  /accounts/self/notification-center~preferences
+PUT  /accounts/self/notification-center~preferences
+     {"email":true,"browser":false,"subscriptions":[{"query":"project:^team/.*","types":["NEW_CHANGE","MERGED"]}]}
 ```
+
+Subscription `types` are `NEW_CHANGE`, `PATCHSET`, `COMMENT`, `MERGED`, `ABANDONED`. Queries are
+validated with Gerrit's change query parser (400 on error); at most 50 subscriptions of 2048
+characters. Index-only operators that cannot be evaluated on a single Change never match.
 
 List returns `{items: [...], next?: <cursor>}`; pass `before=<next>` for the next page.
 `state`: `all` (UI "Inbox": not done), `unread`, `saved` (UI "Saved"), `archived` (UI "Done"); `type` is one of the uppercase event
 names above. `limit` is 1–100. Items use Gerrit's snake_case JSON fields (`created_at`,
 `read_at`, `archived_at`, `saved_at`, `account_id`), Unix epoch milliseconds and numeric stable IDs.
-Count returns `unread` and explicit `pollSeconds`. Successful POST returns 204.
+Count returns `unread`, `latest` (newest visible unread ID, or 0), `browser` and explicit `pollSeconds`. Successful POST returns 204.
 Cross-account access is 403 even for administrators. Unknown or inaccessible notification IDs
 are indistinguishable (404). Invalid action/filter/pagination is 400. Anonymous self access
 is denied by Gerrit's account resource. No account ID is accepted in a mutation payload.
@@ -116,4 +141,4 @@ Integration also runs weekly and on demand; Renovate runs weekly (see [Renovate]
 - Earlier-series packaged-server/browser qualification and remaining tool/release gates.
 - PostgreSQL implementation of NotificationStore for multi-instance sites.
 - Durable event queue/replay, large-Inbox permission-count batching and metrics.
-- Quick panel, preferences, SSE later.
+- Quick panel, Web Push (notifications with every tab closed), SSE later.

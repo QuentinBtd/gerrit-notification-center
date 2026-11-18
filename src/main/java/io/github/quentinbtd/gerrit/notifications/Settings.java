@@ -10,7 +10,7 @@ import java.util.*;
 
 @Singleton
 public final class Settings {
-  public final boolean enabled;
+  public final boolean enabled, email;
   public final String jdbcUrl;
   public final int retentionDays, cleanupSeconds, pollSeconds;
   public final Set<String> events;
@@ -19,6 +19,7 @@ public final class Settings {
   Settings(PluginConfigFactory factory, @PluginName String name, SitePaths site) throws Exception {
     var c = factory.getFromGerritConfig(name);
     enabled = c.getBoolean("enabled", true);
+    email = c.getBoolean("email", true);
     retentionDays = c.getInt("retentionDays", 90);
     cleanupSeconds = c.getInt("cleanupSeconds", 3600);
     pollSeconds = c.getInt("pollSeconds", 45);
