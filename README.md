@@ -14,7 +14,8 @@ support or a published release. See [compatibility](docs/compatibility.md).
 ## Features
 
 - GitHub-style Inbox / Saved / Done, unread count, read/unread, save, done/undo and
-  mark-all-read. Saved notifications are kept by retention.
+  mark-all-read; 25 per page with Previous/Next, row selection with bulk read/done.
+  Saved notifications are kept by retention.
 - Reviewer added, explicit mentions, relevant comments, new changes, new patchsets, merged and abandoned.
 - Owner/current reviewers are followed accounts; mentions can target other registered users.
 - Gerrit's native watched projects (`Settings → Notifications`) also deliver to the inbox, evaluated
@@ -130,6 +131,7 @@ POST /accounts/self/notification-center~notifications {"action":"unarchive","id"
 POST /accounts/self/notification-center~notifications {"action":"save","id":123}
 POST /accounts/self/notification-center~notifications {"action":"unsave","id":123}
 POST /accounts/self/notification-center~notifications {"action":"read-all"}
+POST /accounts/self/notification-center~notifications {"action":"archive","ids":[123,124]}
 GET  /accounts/self/notification-center~preferences
 PUT  /accounts/self/notification-center~preferences
      {"email":true,"browser":false,"subscriptions":[{"query":"project:^team/.*","types":["NEW_CHANGE","MERGED"]}]}
@@ -143,6 +145,8 @@ List returns `{items: [...], next?: <cursor>}`; pass `before=<next>` for the nex
 `state`: `all` (UI "Inbox": not done), `unread`, `saved` (UI "Saved"), `archived` (UI "Done"); `type` is one of the uppercase event
 names above. `limit` is 1–100. Items use Gerrit's snake_case JSON fields (`created_at`,
 `read_at`, `archived_at`, `saved_at`, `account_id`), Unix epoch milliseconds and numeric stable IDs.
+`ids` (1–100) applies `read`/`unread`/`archive`/`unarchive`/`save`/`unsave` to each visible
+notification and skips hidden or unknown ones; 404 only if none matched.
 Count returns `unread`, `latest` (newest visible unread ID, or 0), `browser` and explicit `pollSeconds`. Successful POST returns 204.
 Cross-account access is 403 even for administrators. Unknown or inaccessible notification IDs
 are indistinguishable (404). Invalid action/filter/pagination is 400. Anonymous self access

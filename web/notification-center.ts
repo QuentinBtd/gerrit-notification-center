@@ -23,6 +23,7 @@ declare const Gerrit: {install(callback: (plugin: PluginApi) => void): void};
 const path = '/accounts/self/notification-center~notifications';
 const prefsPath = '/accounts/self/notification-center~preferences';
 const lastSeenKey = 'notification-center-last-browser-id';
+const pageSize = 25;
 // Same-page signal from the Notifications screen to the header bell after a successful change.
 const changedEvent = 'notification-center-changed';
 const announceChange = () => document.dispatchEvent(new Event(changedEvent));
@@ -61,7 +62,10 @@ class Inbox extends HTMLElement {
   protected bellOnly = false;
   private apiPlugin?: PluginApi;
   private rows: Item[] = [];
-  private next?: number;
+  private next?: number; // cursor of the page after this one
+  private cursors: (number | undefined)[] = [undefined]; // `before` of each visited page
+  private pageIndex = 0;
+  private selected = new Set<number>();
   private unread = 0;
   private state = 'all';
   private type = '';
@@ -95,7 +99,8 @@ class Inbox extends HTMLElement {
     const gerritRoot = new URL('../../', this.plugin!.url());
     return new URL(relative.replace(/^\//, ''), gerritRoot).toString();
   }
-  private async refresh(append = false): Promise<void> {
+  private resetPaging() {this.next = undefined; this.cursors = [undefined]; this.pageIndex = 0; this.selected.clear();}
+  private async refresh(): Promise<void> {
     if (!this.plugin || !this.isConnected) return;
     if (this.busy) {this.stale = true; return;}
     this.stale = false;
@@ -113,9 +118,10 @@ class Inbox extends HTMLElement {
       if (this.bellOnly) await this.notifyBrowser(api, count);
       else if (this.state === 'settings') this.prefs ??= await api.get<Prefs>(prefsPath);
       else {
-        const q = new URLSearchParams({state: this.state, limit: '50'});
+        const q = new URLSearchParams({state: this.state, limit: String(pageSize)});
         if (this.type) q.set('type', this.type);
-        if (append && this.next) q.set('before', String(this.next));
+        const before = this.cursors[this.pageIndex];
+        if (before) q.set('before', String(before));
         page = await api.get<Page>(path + '?' + q);
         // Patch only the actor text: a full render would drop focus (e.g. while editing Settings).
         loadNames(api, page.items.map(n => n.actor), id => {
@@ -126,7 +132,13 @@ class Inbox extends HTMLElement {
       if (generation !== this.generation || !this.isConnected) return;
       this.unread = count.unread;
       this.poll = Math.min(3600, Math.max(30, count.pollSeconds || 45)) * 1000;
-      if (page) {this.rows = append ? [...this.rows, ...page.items] : page.items; this.next = page.next;}
+      // A page emptied by Done/archive steps back instead of showing an empty page.
+      if (page && !page.items.length && this.pageIndex > 0) {this.pageIndex--; this.stale = true;}
+      else if (page) {
+        this.rows = page.items; this.next = page.next;
+        const onPage = new Set(page.items.map(n => n.id));
+        for (const id of this.selected) if (!onPage.has(id)) this.selected.delete(id);
+      }
       this.message = '';
     } catch {
       if (generation === this.generation) {this.rows = []; this.next = undefined; this.unread = 0; this.message = 'Unable to load notifications. Retry or check your session.';}
@@ -140,15 +152,17 @@ class Inbox extends HTMLElement {
       }
     }
   }
-  private async action(action: string, id?: number): Promise<void> {
+  private async action(action: string, target?: number | number[]): Promise<void> {
     if (this.busy || !this.plugin || !this.isConnected) return;
     this.busy = true; clearTimeout(this.timer); this.render();
     const generation = this.generation;
     try {
-      const response = await this.plugin.restApi().fetch('POST', path, {action, ...(id === undefined ? {} : {id})});
+      const payload = Array.isArray(target) ? {action, ids: target} : target === undefined ? {action} : {action, id: target};
+      const response = await this.plugin.restApi().fetch('POST', path, payload);
       if (!response.ok) throw new Error('Unable to save notification');
       if (generation !== this.generation || !this.isConnected) return;
       announceChange();
+      if (Array.isArray(target)) this.selected.clear();
       this.busy = false; await this.refresh();
     } catch {
       if (generation === this.generation && this.isConnected) {
@@ -254,7 +268,10 @@ class Inbox extends HTMLElement {
     b.disabled = this.busy; b.onclick = action; return b;
   }
   private render() {
-    const root = this.shadowRoot!; root.replaceChildren();
+    const root = this.shadowRoot!;
+    // Rendering rebuilds the DOM: keep keyboard focus on the same selection checkbox.
+    const focusKey = (root.activeElement as HTMLElement | null)?.dataset?.focus;
+    root.replaceChildren();
     const style = document.createElement('style');
     style.textContent = `
 :host{display:block;color:var(--primary-text-color);font-family:var(--font-family,sans-serif);font-size:var(--font-size-normal,14px)}
@@ -271,7 +288,7 @@ button[aria-pressed=true]{background:var(--selection-background-color,rgba(25,10
 .side button[aria-current=page]{background:var(--selection-background-color,rgba(25,103,210,.12));font-weight:600}
 .side .n{margin-left:auto;font-size:12px;color:var(--deemphasized-text-color)}
 .panel{border:1px solid var(--border-color);border-radius:8px;background:var(--background-color-primary);overflow:hidden}
-.bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border-color);background:var(--background-color-secondary)}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border-color);background:var(--background-color-secondary)}
 .bar .grow{flex:1}
 .row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid var(--border-color)}
 .row:last-child{border-bottom:0}
@@ -287,7 +304,9 @@ button[aria-pressed=true]{background:var(--selection-background-color,rgba(25,10
 .actions{display:flex;opacity:.35}
 .row:hover .actions,.row:focus-within .actions{opacity:1}
 .empty{padding:48px 16px;text-align:center;color:var(--deemphasized-text-color)}
-.more{display:flex;justify-content:center;padding:8px}
+.row.selected{background:var(--selection-background-color,rgba(25,103,210,.08))}
+input[type=checkbox]{margin:0;flex:none}
+.range{font-size:12px;color:var(--deemphasized-text-color);white-space:nowrap}
 .settings{padding:4px 16px 16px}
 .settings h2{font-size:var(--font-size-h3,16px);margin:16px 0 4px}
 .settings label{display:flex;align-items:center;gap:6px;padding:3px 0}
@@ -314,9 +333,9 @@ button[aria-pressed=true]{background:var(--selection-background-color,rgba(25,10
       root.append(a); return;
     }
     const layout = document.createElement('div'); layout.className = 'layout';
-    const side = document.createElement('nav'); side.className = 'side'; side.setAttribute('aria-label', 'Item folders');
+    const side = document.createElement('nav'); side.className = 'side'; side.setAttribute('aria-label', 'Notification folders');
     for (const [state, label, name] of tabs) {
-      const b = this.button(name, label, () => {this.state = state; this.next = undefined; this.prefs = undefined; this.message = ''; void this.refresh();}, true);
+      const b = this.button(name, label, () => {this.state = state; this.resetPaging(); this.prefs = undefined; this.message = ''; void this.refresh();}, true);
       if (state === this.state || (state === 'all' && this.state === 'unread')) b.setAttribute('aria-current', 'page');
       if (state === 'all' && this.unread) {const n = document.createElement('span'); n.className = 'n'; n.textContent = String(this.unread); b.append(n);}
       side.append(b);
@@ -329,19 +348,50 @@ button[aria-pressed=true]{background:var(--selection-background-color,rgba(25,10
       const type = document.createElement('select'); type.setAttribute('aria-label', 'Event type');
       for (const value of ['', ...Object.keys(types)]) {const o = document.createElement('option'); o.value = value; o.textContent = value ? types[value][1] : 'All types'; type.append(o);}
       type.value = this.type; type.disabled = this.busy;
-      type.onchange = () => {this.type = type.value; this.next = undefined; void this.refresh();};
+      type.onchange = () => {this.type = type.value; this.resetPaging(); void this.refresh();};
       const grow = document.createElement('span'); grow.className = 'grow';
-      bar.append(type, grow);
-      if (this.state === 'all' || this.state === 'unread') {
-        const unread = this.button('filter_list', 'Unread', () => {this.state = this.state === 'unread' ? 'all' : 'unread'; this.next = undefined; void this.refresh();}, true);
-        unread.setAttribute('aria-pressed', String(this.state === 'unread'));
-        bar.insertBefore(unread, grow);
-        bar.append(this.button('done_all', 'Mark all as read', () => void this.action('read-all'), true));
+      const all = document.createElement('input'); all.type = 'checkbox'; all.setAttribute('aria-label', 'Select all on this page'); all.dataset.focus = 'select-all';
+      const picked = this.rows.filter(n => this.selected.has(n.id)).length;
+      all.checked = picked > 0 && picked === this.rows.length; all.indeterminate = picked > 0 && !all.checked;
+      all.disabled = this.busy || !this.rows.length;
+      all.onchange = () => {for (const n of this.rows) all.checked ? this.selected.add(n.id) : this.selected.delete(n.id); this.render();};
+      if (this.selected.size) {
+        // GitHub-style: with a selection, the toolbar holds the bulk actions.
+        const count = document.createElement('span'); count.textContent = `${this.selected.size} selected`;
+        const ids = () => [...this.selected];
+        bar.append(all, count, ...(this.state === 'archived'
+          ? [this.button('move_to_inbox', 'Move selected to inbox', () => void this.action('unarchive', ids()), true)]
+          : [this.button('mark_email_read', 'Mark selected as read', () => void this.action('read', ids()), true),
+            this.button('check', 'Mark selected as done', () => void this.action('archive', ids()), true)]), grow);
+      } else {
+        bar.append(all, type, grow);
+        if (this.state === 'all' || this.state === 'unread') {
+          const unread = this.button('filter_list', 'Unread', () => {this.state = this.state === 'unread' ? 'all' : 'unread'; this.resetPaging(); void this.refresh();}, true);
+          unread.setAttribute('aria-pressed', String(this.state === 'unread'));
+          bar.insertBefore(unread, grow);
+          bar.append(this.button('done_all', 'Mark all as read', () => void this.action('read-all'), true));
+        }
+      }
+      if (this.rows.length || this.pageIndex) {
+        const range = document.createElement('span'); range.className = 'range';
+        range.textContent = `${this.pageIndex * pageSize + 1}–${this.pageIndex * pageSize + this.rows.length}`;
+        const prev = this.button('chevron_left', 'Previous page', () => {this.pageIndex--; this.selected.clear(); void this.refresh();});
+        prev.disabled ||= this.pageIndex === 0;
+        const next = this.button('chevron_right', 'Next page', () => {
+          this.cursors[this.pageIndex + 1] = this.next; this.pageIndex++; this.selected.clear(); void this.refresh();
+        });
+        next.disabled ||= !this.next;
+        bar.append(range, prev, next);
       }
       bar.append(this.button('refresh', 'Refresh', () => void this.refresh()));
       panel.append(bar);
       for (const n of this.rows) {
         const row = document.createElement('div'); row.className = n.read_at ? 'row' : 'row unread';
+        if (this.selected.has(n.id)) row.classList.add('selected');
+        const pick = document.createElement('input'); pick.type = 'checkbox'; pick.checked = this.selected.has(n.id);
+        pick.setAttribute('aria-label', `Select ${n.project} #${n.change}`); pick.disabled = this.busy;
+        pick.dataset.focus = `select-${n.id}`;
+        pick.onchange = () => {pick.checked ? this.selected.add(n.id) : this.selected.delete(n.id); this.render();};
         const dot = document.createElement('span'); dot.className = 'dot';
         const [kindIcon, reason] = types[n.type] ?? ['notifications', n.type];
         const kind = icon(kindIcon); kind.className = 'kind'; kind.title = reason;
@@ -363,16 +413,16 @@ button[aria-pressed=true]{background:var(--selection-background-color,rgba(25,10
             : this.button('bookmark_add', 'Save', () => void this.action('save', n.id)),
           n.archived_at ? this.button('move_to_inbox', 'Move to inbox', () => void this.action('unarchive', n.id))
             : this.button('check', 'Mark as done', () => void this.action('archive', n.id)));
-        row.append(dot, kind, main, when, actions); panel.append(row);
+        row.append(pick, dot, kind, main, when, actions); panel.append(row);
       }
       if (!this.rows.length) {const e = document.createElement('p'); e.className = 'empty'; e.setAttribute('role', 'status'); e.textContent = this.busy ? 'Loading…' : this.message || 'All caught up!'; panel.append(e);}
       else if (this.message) {const e = document.createElement('p'); e.setAttribute('role', 'status'); e.className = 'empty'; e.textContent = this.message; panel.append(e);}
-      if (this.next) {const more = document.createElement('div'); more.className = 'more'; more.append(this.button('expand_more', 'Load more', () => void this.refresh(true), true)); panel.append(more);}
     } else {
       const e = document.createElement('p'); e.className = 'empty'; e.setAttribute('role', 'status'); e.textContent = this.message; panel.append(e);
       if (!this.busy) panel.append(this.button('refresh', 'Retry', () => void this.refresh(), true));
     }
     root.append(layout);
+    if (focusKey) root.querySelector<HTMLElement>(`[data-focus="${focusKey}"]`)?.focus();
   }
 }
 class Bell extends Inbox {protected override bellOnly = true;}

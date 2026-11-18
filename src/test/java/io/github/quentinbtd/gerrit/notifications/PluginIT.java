@@ -337,6 +337,49 @@ public class PluginIT extends LightweightPluginDaemonTest {
     }
   }
 
+  private List<Long> projectIds(String query) throws Exception {
+    var response = userRestSession.get(PATH + query);
+    response.assertOK();
+    List<Long> ids = new java.util.ArrayList<>();
+    for (var item :
+        JsonParser.parseString(response.getEntityContent())
+            .getAsJsonObject()
+            .getAsJsonArray("items"))
+      if (item.getAsJsonObject().get("project").getAsString().equals(project.get()))
+        ids.add(item.getAsJsonObject().get("id").getAsLong());
+    return ids;
+  }
+
+  @Test
+  public void bulkActionAppliesToEachSelectedNotification() throws Exception {
+    try {
+      for (int i = 0; i < 2; i++)
+        gApi.changes()
+            .id(project.get(), createChange().getChange().getId().get())
+            .addReviewer(user.email());
+      var ids = projectIds("?limit=100");
+      assertThat(ids.size()).isEqualTo(2);
+      var bulk = new PostNotifications.Input();
+      bulk.action = "archive";
+      bulk.ids = ids;
+      userRestSession.post(PATH, bulk).assertNoContent();
+      assertThat(projectIds("?state=archived&limit=100")).containsExactlyElementsIn(ids);
+      assertThat(projectIds("?limit=100")).isEmpty();
+      bulk.ids = List.of();
+      userRestSession.post(PATH, bulk).assertBadRequest();
+      bulk.ids = java.util.Collections.nCopies(101, ids.get(0));
+      userRestSession.post(PATH, bulk).assertBadRequest();
+      bulk.ids = List.of(Long.MAX_VALUE - 1);
+      userRestSession.post(PATH, bulk).assertNotFound();
+    } finally {
+      projectOperations
+          .project(project)
+          .forUpdate()
+          .add(block(Permission.READ).ref("refs/*").group(SystemGroupBackend.REGISTERED_USERS))
+          .update();
+    }
+  }
+
   @Test
   public void nativeWatchesAndQuerySubscriptionsNotifyNonReviewers() throws Exception {
     requestScopeOperations.setApiUser(user.id());

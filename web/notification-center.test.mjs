@@ -41,7 +41,7 @@ async function harness({loggedIn=true,fail=false,failSave=false,fakePolling=fals
     assert.equal(method,'POST');calls.push(['post',url,payload]);
     if(stateful&&!failSave) {
       const [field,value]={read:['read_at',1],unread:['read_at',null],archive:['archived_at',1],unarchive:['archived_at',null],save:['saved_at',1],unsave:['saved_at',null]}[payload.action];
-      rows.find(r=>r.id===payload.id)[field]=value;
+      for(const id of payload.ids??[payload.id])rows.find(r=>r.id===id)[field]=value;
     }
     return new w.Response(failSave?'private mutation detail':null,{status:failSave?500:204});
   }};
@@ -388,5 +388,72 @@ test('a late actor-name lookup does not disturb Settings editing',async()=>{
     assert.equal(input.value,'project:a branch:ma');
     btn(root,'Inbox').click();await settle();
     assert.match(root.textContent,/Merged · Grace Hopper/,'resolved name used once back in the inbox');
+  } finally {await w.happyDOM.close();}
+});
+
+test('inbox shows 25 per page with Previous/Next over keyset cursors',async()=>{
+  const {w,plugin,calls}=await harness();
+  try {
+    const all=Array.from({length:60},(_,i)=>({id:60-i,type:'MERGED',actor:8,project:'p',change:100+i,url:'/c/p/+/1',created_at:1}));
+    const api=plugin.restApi(),get=api.get;
+    api.get=async url=>{
+      if(!url.includes('state=')||url.includes('count='))return get(url);
+      calls.push(['get',url]);
+      const q=new URLSearchParams(url.split('?')[1]),before=Number(q.get('before')||Infinity),limit=Number(q.get('limit'));
+      const items=all.filter(n=>n.id<before).slice(0,limit);
+      return {items,next:items.length===limit&&items.at(-1).id>1?items.at(-1).id:undefined};
+    };
+    const s=w.document.createElement('notification-center-screen');s.plugin=plugin;w.document.body.append(s);await settle();
+    const root=s.shadowRoot,rows=()=>root.querySelectorAll('.row').length,range=()=>root.querySelector('.range').textContent;
+    assert.ok(calls.some(c=>c[1].includes('limit=25')));
+    assert.equal(rows(),25);assert.equal(range(),'1–25');
+    assert.equal(btn(root,'Previous page').disabled,true);
+    btn(root,'Next page').click();await settle();
+    assert.equal(range(),'26–50');assert.ok(calls.at(-1)[1].includes('before=36'));
+    btn(root,'Next page').click();await settle();
+    assert.equal(rows(),10);assert.equal(range(),'51–60');
+    assert.equal(btn(root,'Next page').disabled,true);
+    btn(root,'Previous page').click();await settle();
+    assert.equal(range(),'26–50');assert.ok(calls.at(-1)[1].includes('before=36'));
+    btn(root,'Done').click();await settle();
+    assert.equal(range(),'1–25','switching folders goes back to page 1');
+  } finally {await w.happyDOM.close();}
+});
+
+test('selected notifications are marked read or done in one request',async()=>{
+  const {w,screen,calls}=await harness({stateful:true});
+  const root=screen.shadowRoot,posts=()=>calls.filter(c=>c[0]==='post').map(c=>JSON.parse(JSON.stringify(c[2])));
+  try {
+    assert.equal(btn(root,'Mark selected as done'),null,'bulk actions only with a selection');
+    root.querySelector('input[aria-label="Select all on this page"]').click();await settle();
+    assert.match(root.textContent,/1 selected/);
+    assert.ok(root.querySelector('.row.selected'));
+    btn(root,'Mark selected as read').click();await settle();
+    assert.deepEqual(posts().at(-1),{action:'read',ids:[2]});
+    assert.equal(root.querySelector('.row.unread'),null);
+    assert.doesNotMatch(root.textContent,/\d+ selected/,'selection cleared after the action');
+    root.querySelector('input[aria-label^="Select p"],input[aria-label^="Select <img"]').click();await settle();
+    btn(root,'Mark selected as done').click();await settle();
+    assert.deepEqual(posts().at(-1),{action:'archive',ids:[2]});
+    assert.equal(root.querySelector('.row'),null);
+    btn(root,'Done').click();await settle();
+    root.querySelector('input[aria-label="Select all on this page"]').click();await settle();
+    btn(root,'Move selected to inbox').click();await settle();
+    assert.deepEqual(posts().at(-1),{action:'unarchive',ids:[2]});
+  } finally {await w.happyDOM.close();}
+});
+
+test('selecting by keyboard keeps focus on the checkbox',async()=>{
+  const {w,screen}=await harness({stateful:true});
+  const root=screen.shadowRoot;
+  try {
+    // Select all (checks the row), then untick the row: each click re-renders the screen.
+    for (const [label,checked] of [['Select all on this page',true],['Select <img src=x onerror=alert(1)> #12',false]]) {
+      const box=root.querySelector(`input[aria-label="${label}"]`);
+      box.focus();box.click();await settle();
+      assert.notEqual(root.activeElement,box,'the screen was re-rendered');
+      assert.equal(root.activeElement?.getAttribute('aria-label'),label,'focus kept: '+label);
+      assert.equal(root.activeElement.checked,checked);
+    }
   } finally {await w.happyDOM.close();}
 });
