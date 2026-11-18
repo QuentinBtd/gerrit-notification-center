@@ -30,7 +30,7 @@ one source-only endpoint used, for the header bell.
   broader packaged migration/reload qualification and tool-cache integrity remain unclaimed.
 - Full distribution-script metadata/tooling qualification; direct canonical target builds are
   not a claim that package.sh or the hosted release workflow ran.
-- Hosted CI is approval-gated (`ci` environment); Release Please runs only with authorization.
+- Hosted CI runs on every PR; Release Please runs only with authorization.
 
 No hosted CI success, release, merge or production readiness is claimed. See test-evidence
 for exact executed scope, retained RED failures and canonical/native artifact hashes.

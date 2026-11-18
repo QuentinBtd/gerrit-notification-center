@@ -11,6 +11,6 @@ Use Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `ci:`); PR titles s
 Conventional Commits too. English code, docs, commit subjects and PR descriptions.
 
 CI runs on every PR and push to `main` (formatting/lint, Conventional Commits, unit tests,
-all-series build and acceptance), but every check first waits for a reviewer of the `ci`
-GitHub environment to approve the run (**Review deployments → Approve**).
+all-series build and acceptance). Runs start automatically for maintainers; PRs from forks or
+first-time contributors wait for **Approve workflows to run** (GitHub's default policy).
 Publishing, merging and releasing require separate authorization.

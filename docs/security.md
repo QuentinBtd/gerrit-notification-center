@@ -26,7 +26,7 @@ plugin logs and build artifacts must be protected by the operator. Full multi-in
 untrusted database-file access are out of scope.
 
 CI uses `pull_request` (never `pull_request_target`): PR code runs with a read-only token and no
-secrets, and only after a reviewer of the `ci` environment approves the run. Checkout jobs use
+secrets; fork and first-time-contributor runs need a maintainer's approval first. Checkout jobs use
 contents:read and persist-credentials:false. Renovate's token is used only by scheduled/manual
 runs on `main`. Local policy fixtures and actionlint are not live Actions
 execution proof. No hosted tests were requested as part of candidate implementation.

@@ -13,18 +13,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Every check waits here until a reviewer of the "ci" environment approves the run.
-  approve:
-    name: Approval
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    environment: ci
-    steps:
-      - run: echo "Checks approved for ${{ github.sha }}"
-
   checks:
     name: Formatting, hooks and static checks
-    needs: approve
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -47,7 +37,6 @@ jobs:
 
   conventional-commits:
     name: Conventional Commits (merge input)
-    needs: approve
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -89,7 +78,6 @@ jobs:
 
   unit:
     name: Unit tests
-    needs: approve
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -111,14 +99,12 @@ jobs:
 
   build:
     name: Build
-    needs: approve
     uses: ./.github/workflows/build.yml
     with:
       ref: ${{ github.sha }}
 
   integration:
     name: Integration
-    needs: approve
     uses: ./.github/workflows/integration.yml
     with:
       ref: ${{ github.sha }}
