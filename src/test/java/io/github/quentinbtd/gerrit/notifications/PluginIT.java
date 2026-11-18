@@ -11,9 +11,11 @@ import com.google.gerrit.acceptance.testsuite.request.RequestScopeOperations;
 import com.google.gerrit.entities.EmailHeader;
 import com.google.gerrit.entities.Permission;
 import com.google.gerrit.extensions.api.changes.ReviewInput;
+import com.google.gerrit.extensions.client.GeneralPreferencesInfo;
 import com.google.gerrit.extensions.client.ProjectWatchInfo;
 import com.google.gerrit.extensions.common.ChangeInput;
 import com.google.gerrit.extensions.registration.DynamicSet;
+import com.google.gerrit.mail.MailHeader;
 import com.google.gerrit.server.group.SystemGroupBackend;
 import com.google.gerrit.server.validators.OutgoingEmailValidationListener;
 import com.google.gerrit.server.validators.ValidationException;
@@ -198,6 +200,127 @@ public class PluginIT extends LightweightPluginDaemonTest {
     assertThat(paths.get(0).getAsString()).isEqualTo(path);
     // The in-process test plugin has no content scanner, so the file itself is not served here;
     // real Gerrit resolves it from the path info, which excludes the query string.
+  }
+
+  private List<FakeEmailSender.Message> mails(String messageType, String email) {
+    return sender.getMessages().stream()
+        .filter(
+            m ->
+                m.headers().get(MailHeader.MESSAGE_TYPE.fieldName())
+                        instanceof EmailHeader.StringEmailHeader h
+                    && h.getString().equals(messageType)
+                    && m.rcpt().stream().anyMatch(a -> a.email().equals(email)))
+        .toList();
+  }
+
+  private void replaceGerritEmails(boolean on) throws Exception {
+    var prefs = new Preferences();
+    prefs.email = on;
+    prefs.replaceGerritEmails = on;
+    userRestSession.put(PREFS, prefs).assertOK();
+  }
+
+  private void awaitPluginMail(String email) throws Exception {
+    for (int i = 0; i < 400 && mails("notification-center", email).isEmpty(); i++) Thread.sleep(50);
+    assertThat(mails("notification-center", email)).isNotEmpty();
+  }
+
+  private void addReviewers(int number, String... emails) throws Exception {
+    var review = new ReviewInput();
+    for (String e : emails) review = review.reviewer(e);
+    gApi.changes().id(project.get(), number).current().review(review); // one email to all
+  }
+
+  private void hideProject() throws Exception {
+    projectOperations
+        .project(project)
+        .forUpdate()
+        .add(block(Permission.READ).ref("refs/*").group(SystemGroupBackend.REGISTERED_USERS))
+        .update();
+  }
+
+  @Test
+  public void replacingGerritEmailsDropsOnlyCoveredNativeMailForThatUser() throws Exception {
+    var other = accountCreator.create("nc-other", "nc-other@example.com", "Other", null);
+    var inert = new Preferences();
+    inert.replaceGerritEmails = true;
+    userRestSession.put(PREFS, inert).assertBadRequest(); // needs email delivery
+    replaceGerritEmails(true);
+    try {
+      int number = createChange().getChange().getId().get();
+      sender.clear();
+      addReviewers(number, user.email(), other.email());
+      assertThat(mails("newchange", other.email())).isNotEmpty(); // others keep Gerrit's email
+      assertThat(mails("newchange", user.email())).isEmpty();
+      awaitPluginMail(user.email()); // plugin's instead
+      // Comments are never replaced (Gerrit also uses that email for ready-for-review).
+      sender.clear();
+      gApi.changes().id(project.get(), number).current().review(new ReviewInput().message("hi"));
+      assertThat(mails("comment", user.email())).isNotEmpty();
+      // Without the option the same user gets Gerrit's email again.
+      replaceGerritEmails(false);
+      sender.clear();
+      gApi.changes().id(project.get(), number).abandon();
+      assertThat(mails("abandon", user.email())).isNotEmpty();
+    } finally {
+      replaceGerritEmails(false);
+      hideProject();
+    }
+  }
+
+  @Test
+  public void readyForReviewEmailStillReachesReplacingReviewer() throws Exception {
+    // A second HTML reviewer keeps the email non-empty, so the filter really runs on it.
+    var other = accountCreator.create("nc-ready", "nc-ready@example.com", "Ready", null);
+    replaceGerritEmails(true);
+    try {
+      int number = createChange().getChange().getId().get();
+      gApi.changes().id(project.get(), number).setWorkInProgress();
+      addReviewers(number, user.email(), other.email());
+      sender.clear();
+      gApi.changes().id(project.get(), number).setReadyForReview();
+      assertThat(mails("comment", user.email())).isNotEmpty();
+    } finally {
+      replaceGerritEmails(false);
+      hideProject();
+    }
+  }
+
+  @Test
+  public void filteringNeverCancelsAPlainTextUsersEmail() throws Exception {
+    var plain = accountCreator.create("nc-plain", "nc-plain@example.com", "Plain", null);
+    requestScopeOperations.setApiUser(plain.id());
+    var gp = gApi.accounts().self().getPreferences();
+    gp.emailFormat = GeneralPreferencesInfo.EmailFormat.PLAINTEXT;
+    gApi.accounts().self().setPreferences(gp);
+    requestScopeOperations.setApiUser(admin.id());
+    replaceGerritEmails(true);
+    try {
+      int number = createChange().getChange().getId().get();
+      sender.clear();
+      // HTML pass: only `user` (replacing); plain-text pass: only `plain`.
+      addReviewers(number, user.email(), plain.email());
+      assertThat(mails("newchange", plain.email())).isNotEmpty();
+    } finally {
+      replaceGerritEmails(false);
+      hideProject();
+    }
+  }
+
+  @Test
+  @GerritConfig(name = "sendemail.html", value = "false")
+  public void withoutHtmlEmailASoleReplacingRecipientGetsOnlyThePluginEmail() throws Exception {
+    replaceGerritEmails(true);
+    try {
+      int number = createChange().getChange().getId().get();
+      sender.clear();
+      addReviewers(number, user.email());
+      assertThat(mails("newchange", user.email())).isEmpty();
+      awaitPluginMail(user.email());
+    } finally {
+      replaceGerritEmails(false);
+      hideProject();
+    }
   }
 
   @Test

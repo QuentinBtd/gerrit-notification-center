@@ -29,7 +29,7 @@ public class StoreTest {
         var s = c.createStatement();
         var r = s.executeQuery("SELECT MAX(version) FROM schema_version")) {
       assertTrue(r.next());
-      assertEquals(4, r.getInt(1));
+      assertEquals(5, r.getInt(1));
     }
   }
 
@@ -125,6 +125,14 @@ public class StoreTest {
       store.savePreferences(7, p);
       assertEquals(1, store.preferences(7).subscriptions.size());
       assertTrue(store.preferences(8).subscriptions.isEmpty());
+      assertTrue(store.replacingAccounts().isEmpty());
+      p.replaceGerritEmails = true;
+      store.savePreferences(7, p);
+      assertTrue(store.preferences(7).replaceGerritEmails);
+      assertEquals(Set.of(7), store.replacingAccounts());
+      p.email = false; // replacing without email delivery is inert
+      store.savePreferences(7, p);
+      assertTrue(store.replacingAccounts().isEmpty());
     }
   }
 }

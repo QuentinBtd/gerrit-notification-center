@@ -12,7 +12,7 @@ public final class H2Store implements NotificationStore {
     try (Statement s = connection.createStatement()) {
       s.execute("CREATE TABLE IF NOT EXISTS schema_version (version INT PRIMARY KEY)");
       try (ResultSet r = s.executeQuery("SELECT MAX(version) FROM schema_version")) {
-        if (r.next() && r.getInt(1) > 4) throw new SQLException("unsupported schema version");
+        if (r.next() && r.getInt(1) > 5) throw new SQLException("unsupported schema version");
       }
       s.execute(
           "CREATE TABLE IF NOT EXISTS notifications (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY"
@@ -49,6 +49,10 @@ public final class H2Store implements NotificationStore {
               + " NULL, query VARCHAR(2048) NOT NULL, types VARCHAR(256) NOT NULL, PRIMARY"
               + " KEY(account_id,position))");
       s.execute("MERGE INTO schema_version KEY(version) VALUES (4)");
+      s.execute(
+          "ALTER TABLE preferences ADD COLUMN IF NOT EXISTS replace_gerrit_emails BOOLEAN DEFAULT"
+              + " FALSE NOT NULL");
+      s.execute("MERGE INTO schema_version KEY(version) VALUES (5)");
     } catch (SQLException e) {
       connection.close();
       throw e;
@@ -90,12 +94,14 @@ public final class H2Store implements NotificationStore {
   public synchronized Preferences preferences(int account) throws SQLException {
     var p = new Preferences();
     try (var s =
-        connection.prepareStatement("SELECT email,browser FROM preferences WHERE account_id=?")) {
+        connection.prepareStatement(
+            "SELECT email,browser,replace_gerrit_emails FROM preferences WHERE account_id=?")) {
       s.setInt(1, account);
       try (var r = s.executeQuery()) {
         if (r.next()) {
           p.email = r.getBoolean(1);
           p.browser = r.getBoolean(2);
+          p.replaceGerritEmails = r.getBoolean(3);
         }
       }
     }
@@ -109,7 +115,8 @@ public final class H2Store implements NotificationStore {
     connection.setAutoCommit(false);
     try (var merge =
             connection.prepareStatement(
-                "MERGE INTO preferences(account_id,email,browser) KEY(account_id) VALUES (?,?,?)");
+                "MERGE INTO preferences(account_id,email,browser,replace_gerrit_emails)"
+                    + " KEY(account_id) VALUES (?,?,?,?)");
         var delete = connection.prepareStatement("DELETE FROM subscriptions WHERE account_id=?");
         var insert =
             connection.prepareStatement(
@@ -117,6 +124,7 @@ public final class H2Store implements NotificationStore {
       merge.setInt(1, account);
       merge.setBoolean(2, p.email);
       merge.setBoolean(3, p.browser);
+      merge.setBoolean(4, p.replaceGerritEmails);
       merge.executeUpdate();
       delete.setInt(1, account);
       delete.executeUpdate();
@@ -135,6 +143,18 @@ public final class H2Store implements NotificationStore {
     } finally {
       connection.setAutoCommit(true);
     }
+  }
+
+  @Override
+  public synchronized Set<Integer> replacingAccounts() throws SQLException {
+    Set<Integer> result = new HashSet<>();
+    try (var s =
+            connection.prepareStatement(
+                "SELECT account_id FROM preferences WHERE email AND replace_gerrit_emails");
+        var r = s.executeQuery()) {
+      while (r.next()) result.add(r.getInt(1));
+    }
+    return result;
   }
 
   @Override

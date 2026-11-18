@@ -79,7 +79,15 @@ project, Change, actor, full event timestamp and stable payload discriminant is 
 recipient. Duplicate inserts cannot reset read/archive state. Deduplication lasts only as long
 as retention; an explicitly replayed ancient event can be inserted after its tombstone expires.
 
-Schema 4 adds per-account preferences (email/browser) and ordered subscriptions. Every event
+Schema 4 adds per-account preferences (email/browser) and ordered subscriptions; schema 5 adds
+`replace_gerrit_emails`. NativeEmailFilter, an OutgoingEmailValidationListener, removes those
+accounts' preferred addresses in place from Gerrit's covered message classes (newchange,
+newpatchset, merged, abandon; not comment, also used for ready-for-review and vote-only reviews).
+When every HTML-pass recipient opted in, it leaves the email unchanged with HTML email on (a
+rejection or empty list ends the whole send, plain-text pass included) and rejects it only
+with `sendemail.html = false`, where no plain-text pass exists. It skips
+Gerrit's plain-text-only pass (Message-ID `-PLAIN@`), whose recipient list validators cannot edit,
+and fails open on storage errors. Every event
 scans all subscriptions; index them by project if that grows. A newly inserted row (never a
 duplicate) for an opted-in recipient is queued (bounded, 1000; overflow drops with a warning)
 and emailed via Gerrit's OutgoingEmail under an internal request context, after re-checking the

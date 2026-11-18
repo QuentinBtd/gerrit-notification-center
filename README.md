@@ -78,10 +78,47 @@ Add to `$GERRIT_SITE/etc/gerrit.config` and restart/reload the plugin:
 SMTP section: they are sent through Gerrit's own outgoing-email pipeline, so `[sendemail]`
 (SMTP, `from`, `allowrcpt`/`denyrcpt`), site OutgoingEmailValidationListeners and each user's
 email strategy apply as for Gerrit's emails. They go only to the recipient's preferred email,
-only while they can still read the Change. Users opt in; plugin emails are sent in addition to
-Gerrit's own emails, never instead of them. Sending is asynchronous on one worker with a bounded
+only while they can still read the Change. Users opt in; by default plugin emails are sent in
+addition to Gerrit's own emails.
+
+To avoid duplicates, a user can also tick **Replace Gerrit's own emails** (Settings tab, needs
+Email): the plugin then removes that user from Gerrit's emails of the covered kinds — review
+request/new change (`newchange`), `newpatchset`, `merged`, `abandon` — through an outgoing-email
+validator, and the plugin's email takes their place. Comment emails are never replaced (Gerrit
+also uses them for ready-for-review and vote-only reviews, which the plugin does not deliver), so
+comments can still arrive twice. Other Gerrit emails (attention set, restore, revert,
+reviewer/vote removal, account and security mail) are never touched; other recipients are
+unaffected. A kind is only replaced while its plugin event types are enabled and `email = true`.
+
+Limits:
+
+- Changes where the user is only CC are not covered by the plugin, so they get no email for them.
+- With HTML email (`sendemail.html`, the default), when every HTML recipient of a Gerrit email has
+  opted in (typically a sole reviewer), Gerrit's email is kept: rejecting it would also cancel
+  Gerrit's separate plain-text copy to other users. Those users get both emails. With
+  `sendemail.html = false` this case is replaced as well.
+- Users whose Gerrit email format is *Plain text* on a site with HTML email cannot enable it
+  (Gerrit's plain-text pass cannot be filtered). Sending is asynchronous on one worker with a bounded
 queue (1000); when SMTP is too slow to keep up, extra emails are dropped with a warning and
 inbox rows are never affected.
+
+Email therefore only needs Gerrit's usual mail setup, for example:
+
+```ini
+[sendemail]
+    enable = true
+    smtpServer = smtp.example.com
+    smtpServerPort = 587
+    smtpEncryption = tls
+    smtpUser = gerrit
+    from = Gerrit Code Review <gerrit@example.com>
+[plugin "notification-center"]
+    email = true
+```
+
+`smtpPass` belongs in `etc/secure.config`. With `sendemail.enable = false` no plugin email is sent
+either, and users whose Gerrit email strategy is *Disabled* (`Settings → Preferences`) never get
+plugin emails even if they opt in. Subjects look like `[Gerrit] New change: project #123`.
 
 Storage paths resolve against the Gerrit site; absolute local paths are allowed. The path is
 an H2 file basename (the database appends `.mv.db`), not a JDBC URL. Semicolons are rejected.
@@ -106,7 +143,7 @@ POST /accounts/self/notification-center~notifications {"action":"unsave","id":12
 POST /accounts/self/notification-center~notifications {"action":"read-all"}
 GET  /accounts/self/notification-center~preferences
 PUT  /accounts/self/notification-center~preferences
-     {"email":true,"browser":false,"subscriptions":[{"query":"project:^team/.*","types":["NEW_CHANGE","MERGED"]}]}
+     {"email":true,"browser":false,"replace_gerrit_emails":false,"subscriptions":[{"query":"project:^team/.*","types":["NEW_CHANGE","MERGED"]}]}
 ```
 
 Subscription `types` are `NEW_CHANGE`, `PATCHSET`, `COMMENT`, `MERGED`, `ABANDONED`. Queries are

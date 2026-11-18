@@ -22,5 +22,9 @@ public final class Preferences {
 
   public boolean email;
   public boolean browser;
+
+  /** With {@link #email}: drop this account from Gerrit's own emails the plugin also covers. */
+  public boolean replaceGerritEmails;
+
   public List<Subscription> subscriptions = new ArrayList<>();
 }

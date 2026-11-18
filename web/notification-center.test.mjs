@@ -390,3 +390,24 @@ test('a late actor-name lookup does not disturb Settings editing',async()=>{
     assert.match(root.textContent,/Merged · Grace Hopper/,'resolved name used once back in the inbox');
   } finally {await w.happyDOM.close();}
 });
+
+test('replacing Gerrit emails is only offered with email delivery and is saved',async()=>{
+  const {w,screen,calls}=await harness();
+  const root=screen.shadowRoot;
+  try {
+    btn(root,'Settings').click();await settle();
+    const box=label=>[...root.querySelectorAll('label')].find(l=>l.textContent.startsWith(label)).querySelector('input');
+    assert.equal(box('Replace Gerrit').disabled,true,'needs email first');
+    box('Email').click();await settle();
+    assert.equal(box('Replace Gerrit').disabled,false);
+    box('Replace Gerrit').click();
+    btn(root,'Save settings').click();await settle();
+    let put=calls.filter(c=>c[0]==='put').at(-1)[2];
+    assert.equal(put.email,true);assert.equal(put.replace_gerrit_emails,true);
+    box('Email').click();await settle(); // turning email off also turns replacing off
+    assert.equal(box('Replace Gerrit').checked,false);
+    btn(root,'Save settings').click();await settle();
+    put=calls.filter(c=>c[0]==='put').at(-1)[2];
+    assert.equal(put.replace_gerrit_emails,false);
+  } finally {await w.happyDOM.close();}
+});
