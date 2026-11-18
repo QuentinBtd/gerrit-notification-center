@@ -26,9 +26,10 @@ current READ guards or substitute an authorization-blind SQL count to improve th
 4. Restore while stopped, preserve ownership/permissions, then start with the matching plugin.
 5. Never copy an actively written MVStore file or downgrade into a future schema.
 
-Automatic idempotent migrations are recorded in schema_version (currently 1 and 2).
+Automatic idempotent migrations are recorded in schema_version (currently 1, 2 and 3; 3 adds `saved_at`).
 Back up before upgrading. Cleanup runs at fixed delay after startup (default one hour), deleting
-notifications and inline correlation records older than retentionDays, in a transaction.
+notifications (except Saved ones) and inline correlation records older than retentionDays, in a
+transaction.
 No VACUUM/SHRINK or destructive operator command runs automatically. Disk space may not shrink
 immediately; schedule maintenance/compaction separately while stopped according to H2 guidance.
 

@@ -13,7 +13,8 @@ support or a published release. See [compatibility](docs/compatibility.md).
 
 ## Features
 
-- Persistent Inbox, unread count, read/unread, archive and mark-all-read.
+- GitHub-style Inbox / Saved / Done, unread count, read/unread, save, done/undo and
+  mark-all-read. Saved notifications are kept by retention.
 - Reviewer added, explicit mentions, relevant comments, new patchsets, merged and abandoned.
 - Owner/current reviewers are followed accounts; mentions can target other registered users.
 - Keyset pagination, state/type filters, recipient-scoped deduplication and retention.
@@ -81,13 +82,16 @@ GET  /accounts/self/notification-center~notifications?count=true
 POST /accounts/self/notification-center~notifications {"action":"read","id":123}
 POST /accounts/self/notification-center~notifications {"action":"unread","id":123}
 POST /accounts/self/notification-center~notifications {"action":"archive","id":123}
+POST /accounts/self/notification-center~notifications {"action":"unarchive","id":123}
+POST /accounts/self/notification-center~notifications {"action":"save","id":123}
+POST /accounts/self/notification-center~notifications {"action":"unsave","id":123}
 POST /accounts/self/notification-center~notifications {"action":"read-all"}
 ```
 
 List returns `{items: [...], next?: <cursor>}`; pass `before=<next>` for the next page.
-`state`: `all` (non-archived Inbox), `unread`, `archived`; `type` is one of the uppercase event
+`state`: `all` (UI "Inbox": not done), `unread`, `saved` (UI "Saved"), `archived` (UI "Done"); `type` is one of the uppercase event
 names above. `limit` is 1–100. Items use Gerrit's snake_case JSON fields (`created_at`,
-`read_at`, `archived_at`, `account_id`), Unix epoch milliseconds and numeric stable IDs.
+`read_at`, `archived_at`, `saved_at`, `account_id`), Unix epoch milliseconds and numeric stable IDs.
 Count returns `unread` and explicit `pollSeconds`. Successful POST returns 204.
 Cross-account access is 403 even for administrators. Unknown or inaccessible notification IDs
 are indistinguishable (404). Invalid action/filter/pagination is 400. Anonymous self access

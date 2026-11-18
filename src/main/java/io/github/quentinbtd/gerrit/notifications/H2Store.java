@@ -12,7 +12,7 @@ public final class H2Store implements NotificationStore {
     try (Statement s = connection.createStatement()) {
       s.execute("CREATE TABLE IF NOT EXISTS schema_version (version INT PRIMARY KEY)");
       try (ResultSet r = s.executeQuery("SELECT MAX(version) FROM schema_version")) {
-        if (r.next() && r.getInt(1) > 2) throw new SQLException("unsupported schema version");
+        if (r.next() && r.getInt(1) > 3) throw new SQLException("unsupported schema version");
       }
       s.execute(
           "CREATE TABLE IF NOT EXISTS notifications (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY"
@@ -36,6 +36,11 @@ public final class H2Store implements NotificationStore {
       s.execute(
           "CREATE INDEX IF NOT EXISTS comment_events_retention ON comment_events(created_at)");
       s.execute("MERGE INTO schema_version KEY(version) VALUES (2)");
+      s.execute("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS saved_at BIGINT");
+      s.execute(
+          "CREATE INDEX IF NOT EXISTS inbox_account_saved ON"
+              + " notifications(account_id,saved_at,id)");
+      s.execute("MERGE INTO schema_version KEY(version) VALUES (3)");
     } catch (SQLException e) {
       connection.close();
       throw e;
@@ -81,6 +86,7 @@ public final class H2Store implements NotificationStore {
           case "all" -> "archived_at IS NULL";
           case "unread" -> "archived_at IS NULL AND read_at IS NULL";
           case "archived" -> "archived_at IS NOT NULL";
+          case "saved" -> "saved_at IS NOT NULL";
           default -> throw new IllegalArgumentException("invalid state");
         };
     try (PreparedStatement s =
@@ -108,7 +114,8 @@ public final class H2Store implements NotificationStore {
                   r.getString("url"),
                   r.getLong("created_at"),
                   (Long) r.getObject("read_at"),
-                  (Long) r.getObject("archived_at")));
+                  (Long) r.getObject("archived_at"),
+                  (Long) r.getObject("saved_at")));
       }
       return result;
     }
@@ -122,13 +129,16 @@ public final class H2Store implements NotificationStore {
           case "read" -> "read_at=?";
           case "unread" -> "read_at=NULL";
           case "archive" -> "archived_at=?";
+          case "unarchive" -> "archived_at=NULL";
+          case "save" -> "saved_at=?";
+          case "unsave" -> "saved_at=NULL";
           default -> throw new IllegalArgumentException("invalid action");
         };
     try (PreparedStatement s =
         connection.prepareStatement(
             "UPDATE notifications SET " + assignment + " WHERE account_id=? AND id=?")) {
       int i = 1;
-      if (!action.equals("unread")) s.setLong(i++, now);
+      if (!assignment.endsWith("NULL")) s.setLong(i++, now);
       s.setInt(i++, account);
       s.setLong(i, id);
       return s.executeUpdate() == 1;
@@ -177,7 +187,8 @@ public final class H2Store implements NotificationStore {
   public synchronized int prune(long before) throws SQLException {
     connection.setAutoCommit(false);
     try (PreparedStatement s =
-            connection.prepareStatement("DELETE FROM notifications WHERE created_at<?");
+            connection.prepareStatement(
+                "DELETE FROM notifications WHERE created_at<? AND saved_at IS NULL");
         PreparedStatement comments =
             connection.prepareStatement("DELETE FROM comment_events WHERE created_at<?")) {
       s.setLong(1, before);

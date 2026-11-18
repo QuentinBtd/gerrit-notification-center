@@ -10,4 +10,5 @@ public record Notification(
     String url,
     long createdAt,
     Long readAt,
-    Long archivedAt) {}
+    Long archivedAt,
+    Long savedAt) {}

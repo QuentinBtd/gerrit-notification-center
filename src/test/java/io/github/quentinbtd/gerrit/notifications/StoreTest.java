@@ -12,11 +12,13 @@ public class StoreTest {
     try (var store = new H2Store(url)) {
       store.insert(7, "preserved", "COMMENT", 8, "p", 12, "/c/p/+/12", 100);
     }
-    // Recreate the exact version-1 boundary: the schema-2 table/index and ledger entry absent.
+    // Recreate the exact version-1 boundary: schema-2/3 tables, columns and ledger entries absent.
     try (var c = java.sql.DriverManager.getConnection(url, "sa", "");
         var s = c.createStatement()) {
       s.execute("DROP TABLE comment_events");
-      s.execute("DELETE FROM schema_version WHERE version=2");
+      s.execute("DROP INDEX inbox_account_saved");
+      s.execute("ALTER TABLE notifications DROP COLUMN saved_at");
+      s.execute("DELETE FROM schema_version WHERE version>=2");
     }
     try (var store = new H2Store(url)) {
       assertEquals(1, store.page(7, "all", null, Long.MAX_VALUE, 50).size());
@@ -26,7 +28,7 @@ public class StoreTest {
         var s = c.createStatement();
         var r = s.executeQuery("SELECT MAX(version) FROM schema_version")) {
       assertTrue(r.next());
-      assertEquals(2, r.getInt(1));
+      assertEquals(3, r.getInt(1));
     }
   }
 
@@ -56,8 +58,17 @@ public class StoreTest {
       assertTrue(store.update(7, id, "archive", 500));
       assertEquals(1, store.page(7, "archived", "MERGED", Long.MAX_VALUE, 100).size());
       assertEquals(2, store.page(7, "all", null, first.get(1).id(), 2).size());
-      assertEquals(2, store.prune(300));
-      assertEquals(1, store.page(7, "all", null, Long.MAX_VALUE, 100).size());
+      assertTrue(store.update(7, id, "unarchive", 500));
+      assertEquals(4, store.page(7, "all", null, Long.MAX_VALUE, 100).size());
+      assertTrue(store.update(7, id, "archive", 500));
+      long oldest = store.page(7, "all", null, Long.MAX_VALUE, 100).getLast().id();
+      assertTrue(store.update(7, oldest, "save", 500));
+      assertEquals(oldest, store.page(7, "saved", null, Long.MAX_VALUE, 100).get(0).id());
+      // Saved rows survive retention.
+      assertEquals(1, store.prune(300));
+      assertEquals(2, store.page(7, "all", null, Long.MAX_VALUE, 100).size());
+      assertTrue(store.update(7, oldest, "unsave", 500));
+      assertTrue(store.page(7, "saved", null, Long.MAX_VALUE, 100).isEmpty());
     }
   }
 

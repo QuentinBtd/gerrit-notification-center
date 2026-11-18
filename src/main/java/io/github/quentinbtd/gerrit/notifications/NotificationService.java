@@ -50,7 +50,7 @@ public final class NotificationService {
   }
 
   public boolean update(int account, long id, String action, long now) throws SQLException {
-    if (!Set.of("read", "unread", "archive").contains(action))
+    if (!Set.of("read", "unread", "archive", "unarchive", "save", "unsave").contains(action))
       throw new IllegalArgumentException("invalid action");
     Notification row = store.find(account, id);
     return row != null && visibility.canSee(account, row) && store.update(account, id, action, now);
