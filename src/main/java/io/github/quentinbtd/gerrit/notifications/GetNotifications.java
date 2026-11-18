@@ -49,7 +49,15 @@ public final class GetNotifications implements RestReadView<AccountResource> {
     try {
       return Response.ok(
           count
-              ? Map.of("unread", service.count(account), "pollSeconds", settings.pollSeconds)
+              ? Map.of(
+                  "unread",
+                  service.count(account),
+                  "latest",
+                  service.latest(account),
+                  "pollSeconds",
+                  settings.pollSeconds,
+                  "browser",
+                  service.preferences(account).browser)
               : service.list(account, state, type, before, limit));
     } catch (IllegalArgumentException e) {
       throw new BadRequestException(e.getMessage());

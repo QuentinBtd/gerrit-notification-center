@@ -46,6 +46,12 @@ health using server/OS diagnostics without enabling sensitive HTTP payload loggi
 - Load/save error: verify session, plugin enabled flag and server storage health. UI shows a generic
   error rather than backend payload. Bounded read polling resumes after a save failure; only an
   explicit user action can retry a mutation. Refresh remains available.
+- No plugin email: check `email` and `smtp*` keys in the plugin section (`smtpServer` is
+  required; `smtpPass` in secure.config), the user's Email setting (Notifications → Settings),
+  their Gerrit email strategy and preferred email, and site outgoing-email validators.
+  `notification-center email delivery failed (<type>)` means the SMTP exchange failed (server,
+  TLS certificate, authentication or refusal); `email queue full (SMTP slow?); N emails dropped`
+  means the 1000-email queue overflowed (logged every 100 drops). Inbox rows are unaffected.
 - H2 lock error: stop the second process; do not enable shared mode or delete lock/database files.
 - Future schema / invalid config: fail startup, restore a compatible artifact/backup or correct config.
 - Growing count latency: reduce retention or plan PostgreSQL plus permission-aware batching; do not

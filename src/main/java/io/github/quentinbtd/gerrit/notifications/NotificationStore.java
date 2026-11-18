@@ -1,10 +1,11 @@
 package io.github.quentinbtd.gerrit.notifications;
 
 import java.sql.SQLException;
-import java.util.List;
+import java.util.*;
 
 public interface NotificationStore extends AutoCloseable {
-  void insert(
+  /** Returns true when a new row was stored (false for a duplicate event). */
+  boolean insert(
       int account,
       String event,
       String type,
@@ -23,6 +24,13 @@ public interface NotificationStore extends AutoCloseable {
   Notification find(int account, long id) throws SQLException;
 
   int prune(long before) throws SQLException;
+
+  Preferences preferences(int account) throws SQLException;
+
+  void savePreferences(int account, Preferences preferences) throws SQLException;
+
+  /** Every account's subscriptions, keyed by account ID. */
+  Map<Integer, List<Preferences.Subscription>> subscriptions() throws SQLException;
 
   List<Notification> page(int account, String state, String type, long before, int limit)
       throws SQLException;

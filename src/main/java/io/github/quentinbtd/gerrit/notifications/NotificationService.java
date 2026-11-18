@@ -49,6 +49,16 @@ public final class NotificationService {
     }
   }
 
+  /** ID of the newest visible unread notification, or 0. Lets the UI detect new arrivals. */
+  public long latest(int account) throws SQLException {
+    var p = list(account, "unread", null, Long.MAX_VALUE, 1);
+    return p.items().isEmpty() ? 0 : p.items().get(0).id();
+  }
+
+  public Preferences preferences(int account) throws SQLException {
+    return store.preferences(account);
+  }
+
   public boolean update(int account, long id, String action, long now) throws SQLException {
     if (!Set.of("read", "unread", "archive", "unarchive", "save", "unsave").contains(action))
       throw new IllegalArgumentException("invalid action");

@@ -3,6 +3,7 @@ package io.github.quentinbtd.gerrit.notifications;
 import static org.junit.Assert.*;
 
 import java.nio.file.Files;
+import java.util.*;
 import org.junit.Test;
 
 public class StoreTest {
@@ -28,7 +29,7 @@ public class StoreTest {
         var s = c.createStatement();
         var r = s.executeQuery("SELECT MAX(version) FROM schema_version")) {
       assertTrue(r.next());
-      assertEquals(3, r.getInt(1));
+      assertEquals(4, r.getInt(1));
     }
   }
 
@@ -99,6 +100,31 @@ public class StoreTest {
     }
     try (H2Store store = new H2Store(url)) {
       assertEquals(1, store.page(7, "unread", null, Long.MAX_VALUE, 50).size());
+    }
+  }
+
+  @Test
+  public void preferencesRoundTripAndReplaceSubscriptions() throws Exception {
+    try (var store = new H2Store("jdbc:h2:mem:preferences")) {
+      assertTrue(store.preferences(7).email); // on by default
+      assertTrue(store.preferences(7).subscriptions.isEmpty());
+      var p = new Preferences();
+      p.email = false;
+      p.subscriptions =
+          List.of(
+              new Preferences.Subscription("project:^team/.*", List.of("NEW_CHANGE", "MERGED")),
+              new Preferences.Subscription("branch:main", List.of("COMMENT")));
+      store.savePreferences(7, p);
+      var read = store.preferences(7);
+      assertFalse(read.email);
+      assertFalse(read.browser);
+      assertEquals("project:^team/.*", read.subscriptions.get(0).query);
+      assertEquals(List.of("NEW_CHANGE", "MERGED"), read.subscriptions.get(0).types);
+      assertEquals(Set.of(7), store.subscriptions().keySet());
+      p.subscriptions = List.of(p.subscriptions.get(1));
+      store.savePreferences(7, p);
+      assertEquals(1, store.preferences(7).subscriptions.size());
+      assertTrue(store.preferences(8).subscriptions.isEmpty());
     }
   }
 }

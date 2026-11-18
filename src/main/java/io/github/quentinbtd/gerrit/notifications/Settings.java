@@ -1,5 +1,6 @@
 package io.github.quentinbtd.gerrit.notifications;
 
+import com.google.gerrit.entities.Address;
 import com.google.gerrit.extensions.annotations.PluginName;
 import com.google.gerrit.server.config.PluginConfigFactory;
 import com.google.gerrit.server.config.SitePaths;
@@ -10,15 +11,38 @@ import java.util.*;
 
 @Singleton
 public final class Settings {
-  public final boolean enabled;
+  public final boolean enabled, email;
   public final String jdbcUrl;
   public final int retentionDays, cleanupSeconds, pollSeconds;
+
+  /** Plugin-owned SMTP: Gerrit's [sendemail] is not used. Server null means no plugin email. */
+  public final String smtpServer, smtpEncryption, smtpUser, from;
+
+  public final int smtpServerPort;
   public final Set<String> events;
 
   @Inject
   Settings(PluginConfigFactory factory, @PluginName String name, SitePaths site) throws Exception {
     var c = factory.getFromGerritConfig(name);
     enabled = c.getBoolean("enabled", true);
+    email = c.getBoolean("email", true);
+    smtpServer = c.getString("smtpServer");
+    smtpEncryption = c.getString("smtpEncryption", "none").toLowerCase(Locale.ROOT);
+    if (!Set.of("none", "ssl", "tls").contains(smtpEncryption))
+      throw new IllegalArgumentException("smtpEncryption must be none, ssl or tls");
+    smtpServerPort =
+        c.getInt(
+            "smtpServerPort",
+            switch (smtpEncryption) {
+              case "ssl" -> 465;
+              case "tls" -> 587;
+              default -> 25;
+            });
+    smtpUser = c.getString("smtpUser");
+    from = c.getString("from");
+    if (from != null) {
+      var unused = Address.parse(from); // fail at startup, not on the first email
+    }
     retentionDays = c.getInt("retentionDays", 90);
     cleanupSeconds = c.getInt("cleanupSeconds", 3600);
     pollSeconds = c.getInt("pollSeconds", 45);

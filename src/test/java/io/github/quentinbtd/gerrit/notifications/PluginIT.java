@@ -1,18 +1,431 @@
 package io.github.quentinbtd.gerrit.notifications;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.gerrit.acceptance.testsuite.project.TestProjectUpdate.block;
 
 import com.google.gerrit.acceptance.LightweightPluginDaemonTest;
 import com.google.gerrit.acceptance.TestPlugin;
+import com.google.gerrit.acceptance.config.GerritConfig;
+import com.google.gerrit.acceptance.testsuite.project.ProjectOperations;
+import com.google.gerrit.acceptance.testsuite.request.RequestScopeOperations;
+import com.google.gerrit.entities.Address;
+import com.google.gerrit.entities.EmailHeader;
+import com.google.gerrit.entities.Permission;
 import com.google.gerrit.extensions.api.changes.ReviewInput;
+import com.google.gerrit.extensions.client.GeneralPreferencesInfo;
+import com.google.gerrit.extensions.client.ProjectWatchInfo;
+import com.google.gerrit.extensions.common.ChangeInput;
+import com.google.gerrit.extensions.registration.DynamicSet;
+import com.google.gerrit.server.group.SystemGroupBackend;
+import com.google.gerrit.server.validators.OutgoingEmailValidationListener;
+import com.google.gerrit.server.validators.ValidationException;
 import com.google.gson.JsonParser;
+import com.google.inject.AbstractModule;
+import com.google.inject.Inject;
+import com.google.inject.util.Modules;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 
 @TestPlugin(
     name = "notification-center",
-    sysModule = "io.github.quentinbtd.gerrit.notifications.Module")
+    sysModule = "io.github.quentinbtd.gerrit.notifications.PluginIT$TestModule")
 public class PluginIT extends LightweightPluginDaemonTest {
+  /**
+   * The production module plus a site outgoing-email validator the tests drive. For plugin emails
+   * whose Subject contains {@code target}, it signals {@code seen}, optionally blocks the mail
+   * worker on {@code hold}, and rejects when {@code reject} was set before the message arrived.
+   */
+  public static final class TestModule extends AbstractModule {
+    /** Captures plugin email instead of talking SMTP. */
+    static final class FakeTransport implements MailTransport {
+      record Sent(Address from, Address to, String raw) {
+        String body() {
+          return new String(
+              Base64.getMimeDecoder().decode(raw.split("\r\n\r\n", 2)[1].trim()),
+              StandardCharsets.UTF_8);
+        }
+      }
+
+      final List<Sent> sent = new CopyOnWriteArrayList<>();
+
+      @Override
+      public boolean configured() {
+        return true;
+      }
+
+      @Override
+      public void send(Address from, Collection<Address> to, String message) {
+        for (var rcpt : to) sent.add(new Sent(from, rcpt, message));
+      }
+    }
+
+    static final FakeTransport MAIL = new FakeTransport();
+    static volatile boolean reject;
+
+    /** When set, a matching plugin email gets a rewritten header map and this recipient. */
+    static volatile String redirectTo;
+
+    static volatile String target;
+    static volatile CountDownLatch seen = new CountDownLatch(1), hold;
+
+    @Override
+    protected void configure() {
+      install(
+          Modules.override(new Module()).with(b -> b.bind(MailTransport.class).toInstance(MAIL)));
+      DynamicSet.bind(binder(), OutgoingEmailValidationListener.class)
+          .toInstance(
+              args -> {
+                boolean rejectThis = reject;
+                String t = target;
+                if (!"notification-center".equals(args.messageClass)
+                    || t == null
+                    || !(args.headers.get("Subject") instanceof EmailHeader.StringEmailHeader h)
+                    || !h.getString().contains(t)) return;
+                String redirect = redirectTo;
+                if (redirect != null) {
+                  var rewritten = new LinkedHashMap<>(args.headers);
+                  rewritten.put("X-Policy", new EmailHeader.StringEmailHeader("rewritten"));
+                  args.headers = rewritten;
+                  args.smtpRcptTo = new HashSet<>(Set.of(Address.parse(redirect)));
+                }
+                seen.countDown();
+                var waitFor = hold;
+                try {
+                  if (waitFor != null) waitFor.await(30, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                }
+                if (rejectThis) throw new ValidationException("site policy rejects this email");
+              });
+    }
+  }
+
+  private static void resetHook() {
+    TestModule.reject = false;
+    TestModule.target = null;
+    TestModule.redirectTo = null;
+    var h = TestModule.hold;
+    TestModule.hold = null;
+    if (h != null) h.countDown();
+  }
+
   private static final String PATH = "/accounts/self/notification-center~notifications";
+  private static final String PREFS = "/accounts/self/notification-center~preferences";
+  @Inject private RequestScopeOperations requestScopeOperations;
+  @Inject private ProjectOperations projectOperations;
+
+  private int count(String query) throws Exception {
+    var response = userRestSession.get(PATH + query);
+    response.assertOK();
+    return JsonParser.parseString(response.getEntityContent())
+        .getAsJsonObject()
+        .getAsJsonArray("items")
+        .size();
+  }
+
+  private List<TestModule.FakeTransport.Sent> mails(String email, String reason) {
+    return TestModule.MAIL.sent.stream()
+        .filter(
+            m ->
+                m.to().email().equals(email)
+                    && m.body().startsWith(reason + " by ")
+                    && m.body().contains(" on " + project.get() + " #"))
+        .toList();
+  }
+
+  private List<TestModule.FakeTransport.Sent> pluginMails(String email) {
+    return mails(email, "New change");
+  }
+
+  /**
+   * Mail is sent on one FIFO worker thread: waiting for mail N implies earlier ones were handled.
+   */
+  private void awaitPluginMails(String email, int expected) throws Exception {
+    for (int i = 0; i < 400 && pluginMails(email).size() < expected; i++) Thread.sleep(50);
+    assertThat(pluginMails(email).size()).isEqualTo(expected);
+  }
+
+  private static void await(CountDownLatch latch) throws Exception {
+    assertThat(latch.await(30, TimeUnit.SECONDS)).isTrue();
+  }
+
+  private Preferences subscribedToNewChanges(boolean email) {
+    var prefs = new Preferences();
+    prefs.email = email;
+    prefs.subscriptions =
+        List.of(new Preferences.Subscription("project:" + project.get(), List.of("NEW_CHANGE")));
+    return prefs;
+  }
+
+  @Test
+  public void queuedEmailIsDroppedAfterTheRecipientOptsOut() throws Exception {
+    TestModule.target = "New change: " + project.get() + " #";
+    TestModule.seen = new CountDownLatch(1);
+    TestModule.hold = new CountDownLatch(1);
+    userRestSession.put(PREFS, subscribedToNewChanges(true)).assertOK();
+    try {
+      TestModule.MAIL.sent.clear();
+      createChange(); // A: the worker blocks in the validator while sending it
+      await(TestModule.seen);
+      createChange(); // B: queued behind A while the user still has email enabled
+      userRestSession.put(PREFS, subscribedToNewChanges(false)).assertOK();
+      adminRestSession.put(PREFS, subscribedToNewChanges(true)).assertOK();
+      TestModule.hold.countDown();
+      // C, by user, emails only admin: once it arrives, the FIFO worker has handled B.
+      requestScopeOperations.setApiUser(user.id());
+      var unused = gApi.changes().create(new ChangeInput(project.get(), "master", "C")).get();
+      requestScopeOperations.setApiUser(admin.id());
+      awaitPluginMails(admin.email(), 1);
+      assertThat(pluginMails(user.email()).size()).isEqualTo(1); // A only, B was dropped
+    } finally {
+      resetHook();
+      requestScopeOperations.setApiUser(admin.id());
+      userRestSession.put(PREFS, new Preferences()).assertOK();
+      adminRestSession.put(PREFS, new Preferences()).assertOK();
+      projectOperations
+          .project(project)
+          .forUpdate()
+          .add(block(Permission.READ).ref("refs/*").group(SystemGroupBackend.REGISTERED_USERS))
+          .update();
+    }
+  }
+
+  @Test
+  @GerritConfig(
+      name = "plugin.notification-center.from",
+      value = "Notifications <notify@example.com>")
+  public void emailUsesConfiguredSenderAndHonorsOutgoingValidators() throws Exception {
+    userRestSession.put(PREFS, subscribedToNewChanges(true)).assertOK();
+    try {
+      TestModule.MAIL.sent.clear();
+      createChange();
+      awaitPluginMails(user.email(), 1);
+      var mail = pluginMails(user.email()).get(0);
+      assertThat(mail.from().email()).isEqualTo("notify@example.com");
+      assertThat(mail.raw()).contains("X-Gerrit-MessageType: notification-center");
+      assertThat(mail.body()).contains("/c/" + project.get() + "/+/");
+      TestModule.seen = new CountDownLatch(1);
+      TestModule.reject = true;
+      TestModule.target = "New change: " + project.get() + " #";
+      createChange();
+      await(TestModule.seen); // the validator has seen (and rejected) this plugin email
+      TestModule.reject = false;
+      createChange();
+      awaitPluginMails(user.email(), 2); // FIFO: the rejected one was handled before this one
+      assertThat(pluginMails(user.email()).size()).isEqualTo(2);
+    } finally {
+      resetHook();
+      userRestSession.put(PREFS, new Preferences()).assertOK();
+      projectOperations
+          .project(project)
+          .forUpdate()
+          .add(block(Permission.READ).ref("refs/*").group(SystemGroupBackend.REGISTERED_USERS))
+          .update();
+    }
+  }
+
+  @Test
+  public void frontendScriptUrlCarriesItsContentHash() throws Exception {
+    String version = Module.frontendVersion();
+    assertThat(version).matches("[0-9a-f]{12}");
+    var info = adminRestSession.get("/config/server/info");
+    info.assertOK();
+    String path = "plugins/notification-center/static/notification-center.js?v=" + version;
+    var paths =
+        JsonParser.parseString(info.getEntityContent().substring(")]}'".length()))
+            .getAsJsonObject()
+            .getAsJsonObject("plugin")
+            .getAsJsonArray("js_resource_paths");
+    assertThat(paths.size()).isEqualTo(1);
+    assertThat(paths.get(0).getAsString()).isEqualTo(path);
+    // The in-process test plugin has no content scanner, so the file itself is not served here;
+    // real Gerrit resolves it from the path info, which excludes the query string.
+  }
+
+  private void addReviewers(int number, String... emails) throws Exception {
+    var review = new ReviewInput();
+    for (String e : emails) review = review.reviewer(e);
+    gApi.changes().id(project.get(), number).current().review(review);
+  }
+
+  private void awaitMails(String email, String reason, int expected) throws Exception {
+    for (int i = 0; i < 400 && mails(email, reason).size() < expected; i++) Thread.sleep(50);
+    assertThat(mails(email, reason).size()).isEqualTo(expected);
+  }
+
+  @Test
+  public void validatorRewrittenHeadersAndRecipientsAreWhatGetsSent() throws Exception {
+    userRestSession.put(PREFS, subscribedToNewChanges(true)).assertOK();
+    TestModule.target = "New change: " + project.get() + " #";
+    TestModule.redirectTo = "policy@example.com";
+    try {
+      TestModule.MAIL.sent.clear();
+      createChange();
+      awaitPluginMails("policy@example.com", 1);
+      assertThat(pluginMails("policy@example.com").get(0).raw()).contains("X-Policy: rewritten");
+      assertThat(pluginMails(user.email())).isEmpty();
+    } finally {
+      resetHook();
+      userRestSession.put(PREFS, new Preferences()).assertOK();
+      projectOperations
+          .project(project)
+          .forUpdate()
+          .add(block(Permission.READ).ref("refs/*").group(SystemGroupBackend.REGISTERED_USERS))
+          .update();
+    }
+  }
+
+  @Test
+  public void deactivatedReviewerGetsNoEmail() throws Exception {
+    var gone = accountCreator.create("nc-gone", "nc-gone@example.com", "Gone", null);
+    userRestSession.put(PREFS, new Preferences()).assertOK();
+    try {
+      int number = createChange().getChange().getId().get();
+      addReviewers(number, gone.email(), user.email());
+      awaitMails(gone.email(), "Review requested", 1); // active: emailed
+      gApi.accounts().id(gone.id().get()).setActive(false);
+      TestModule.MAIL.sent.clear();
+      gApi.changes().id(project.get(), number).abandon(); // owner + both reviewers
+      awaitMails(user.email(), "Abandoned", 1);
+      // FIFO worker: once user's next email arrives, gone's abandon email was already handled.
+      addReviewers(createChange().getChange().getId().get(), user.email());
+      awaitMails(user.email(), "Review requested", 1);
+      assertThat(mails(gone.email(), "Abandoned")).isEmpty();
+    } finally {
+      gApi.accounts().id(gone.id().get()).setActive(true);
+      projectOperations
+          .project(project)
+          .forUpdate()
+          .add(block(Permission.READ).ref("refs/*").group(SystemGroupBackend.REGISTERED_USERS))
+          .update();
+    }
+  }
+
+  @Test
+  public void emailIsOnByDefaultExceptForGerritDisabledEmailStrategy() throws Exception {
+    var quiet = accountCreator.create("nc-quiet", "nc-quiet@example.com", "Quiet", null);
+    requestScopeOperations.setApiUser(quiet.id());
+    var gp = gApi.accounts().self().getPreferences();
+    gp.emailStrategy = GeneralPreferencesInfo.EmailStrategy.DISABLED;
+    gApi.accounts().self().setPreferences(gp);
+    requestScopeOperations.setApiUser(admin.id());
+    userRestSession.put(PREFS, new Preferences()).assertOK(); // defaults: email on
+    try {
+      TestModule.MAIL.sent.clear();
+      addReviewers(createChange().getChange().getId().get(), quiet.email(), user.email());
+      awaitMails(user.email(), "Review requested", 1);
+      // FIFO worker: once user's second email arrives, quiet's would have been sent already.
+      addReviewers(createChange().getChange().getId().get(), user.email());
+      awaitMails(user.email(), "Review requested", 2);
+      assertThat(mails(quiet.email(), "Review requested")).isEmpty();
+    } finally {
+      projectOperations
+          .project(project)
+          .forUpdate()
+          .add(block(Permission.READ).ref("refs/*").group(SystemGroupBackend.REGISTERED_USERS))
+          .update();
+    }
+  }
+
+  private List<Long> projectIds(String query) throws Exception {
+    var response = userRestSession.get(PATH + query);
+    response.assertOK();
+    List<Long> ids = new java.util.ArrayList<>();
+    for (var item :
+        JsonParser.parseString(response.getEntityContent())
+            .getAsJsonObject()
+            .getAsJsonArray("items"))
+      if (item.getAsJsonObject().get("project").getAsString().equals(project.get()))
+        ids.add(item.getAsJsonObject().get("id").getAsLong());
+    return ids;
+  }
+
+  @Test
+  public void bulkActionAppliesToEachSelectedNotification() throws Exception {
+    try {
+      for (int i = 0; i < 2; i++)
+        gApi.changes()
+            .id(project.get(), createChange().getChange().getId().get())
+            .addReviewer(user.email());
+      var ids = projectIds("?limit=100");
+      assertThat(ids.size()).isEqualTo(2);
+      var bulk = new PostNotifications.Input();
+      bulk.action = "archive";
+      bulk.ids = ids;
+      userRestSession.post(PATH, bulk).assertNoContent();
+      assertThat(projectIds("?state=archived&limit=100")).containsExactlyElementsIn(ids);
+      assertThat(projectIds("?limit=100")).isEmpty();
+      bulk.ids = List.of();
+      userRestSession.post(PATH, bulk).assertBadRequest();
+      bulk.ids = java.util.Collections.nCopies(101, ids.get(0));
+      userRestSession.post(PATH, bulk).assertBadRequest();
+      bulk.ids = List.of(Long.MAX_VALUE - 1);
+      userRestSession.post(PATH, bulk).assertNotFound();
+    } finally {
+      projectOperations
+          .project(project)
+          .forUpdate()
+          .add(block(Permission.READ).ref("refs/*").group(SystemGroupBackend.REGISTERED_USERS))
+          .update();
+    }
+  }
+
+  @Test
+  public void nativeWatchesAndQuerySubscriptionsNotifyNonReviewers() throws Exception {
+    requestScopeOperations.setApiUser(user.id());
+    var watch = new ProjectWatchInfo();
+    watch.project = project.get();
+    watch.notifyAbandonedChanges = true;
+    gApi.accounts().self().setWatchedProjects(List.of(watch));
+    requestScopeOperations.setApiUser(admin.id());
+    try {
+      var prefs = new Preferences();
+      prefs.email = true;
+      prefs.subscriptions =
+          List.of(new Preferences.Subscription("bogus-operator:x", List.of("NEW_CHANGE")));
+      userRestSession.put(PREFS, prefs).assertBadRequest();
+      prefs.subscriptions =
+          List.of(
+              new Preferences.Subscription(
+                  "project:" + project.get(),
+                  new java.util.ArrayList<>(Arrays.asList("MERGED", null))));
+      var nullType = userRestSession.put(PREFS, prefs);
+      nullType.assertBadRequest();
+      assertThat(nullType.getEntityContent()).contains("invalid subscription types");
+      prefs.subscriptions =
+          List.of(
+              new Preferences.Subscription(
+                  "project:^" + project.get().substring(0, 5) + ".* status:open",
+                  List.of("NEW_CHANGE")));
+      userRestSession.put(PREFS, prefs).assertOK();
+      var stored = userRestSession.get(PREFS);
+      stored.assertOK();
+      assertThat(stored.getEntityContent()).contains("status:open");
+      int newChanges = count("?type=NEW_CHANGE"), abandoned = count("?type=ABANDONED");
+      var change = createChange();
+      assertThat(count("?type=NEW_CHANGE")).isEqualTo(newChanges + 1);
+      gApi.changes().id(project.get(), change.getChange().getId().get()).abandon();
+      assertThat(count("?type=ABANDONED")).isEqualTo(abandoned + 1);
+    } finally {
+      // The lightweight daemon shares the plugin inbox and preferences across methods.
+      userRestSession.put(PREFS, new Preferences()).assertOK();
+      projectOperations
+          .project(project)
+          .forUpdate()
+          .add(block(Permission.READ).ref("refs/*").group(SystemGroupBackend.REGISTERED_USERS))
+          .update();
+    }
+  }
 
   @Test
   public void summaryMentionDoesNotLinkToUnrelatedInline() throws Exception {

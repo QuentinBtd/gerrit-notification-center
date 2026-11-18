@@ -5,6 +5,8 @@ cd "$ROOT"
 mode="${1:-unit}"
 series="${2:-3.14}"
 check_series "$series"
+# The plugin and its tests embed the bundled UI (frontend version hash, packaged JAR).
+[[ -f build/frontend/static/notification-center.js ]] || die 'frontend not built: run npm ci && npm run build first'
 : "${JAVA_HOME:?Set JAVA_HOME to Java 21}"
 deps="${NOTIFICATION_DEPS:-$ROOT/build/deps/$series}"
 python3 -I tools/scripts/fetch_deps.py --series "$series" --out "$deps"
@@ -35,4 +37,4 @@ for f in "${tests[@]}"; do
   c="${c%.java}"
   classes+=("${c//\//.}")
 done
-"$JAVA_HOME/bin/java" -Djava.io.tmpdir="${TMPDIR:-$ROOT/build/native}" -Xmx768m -XX:ActiveProcessorCount=2 --add-opens=java.base/java.lang=ALL-UNNAMED -cp "$out/test-classes:$out/classes:src/main/resources:$cp" org.junit.runner.JUnitCore "${classes[@]}"
+"$JAVA_HOME/bin/java" -Djava.io.tmpdir="${TMPDIR:-$ROOT/build/native}" -Xmx768m -XX:ActiveProcessorCount=2 --add-opens=java.base/java.lang=ALL-UNNAMED -cp "$out/test-classes:$out/classes:src/main/resources:build/frontend:$cp" org.junit.runner.JUnitCore "${classes[@]}"

@@ -23,11 +23,19 @@ handle Gerrit configuration and lifecycle. TypeScript uses public plugin REST/sc
 | --- | --- |
 | REVIEWER_ADDED | Newly added registered account IDs only, not all existing reviewers |
 | COMMENT | Owner plus current REVIEWER accounts; explicit mentioned accounts get MENTION instead |
-| PATCHSET | Owner plus current REVIEWER accounts |
+| NEW_CHANGE | Owner plus current REVIEWER accounts (patch set 1) |
+| PATCHSET | Owner plus current REVIEWER accounts (patch set 2+) |
 | MERGED / ABANDONED | Owner plus current REVIEWER accounts |
 
-The actor is excluded in every case. CCs, former reviewers, email-only reviewers, arbitrary
-watch rules, stars and attention-set members do not independently subscribe in this MVP.
+Watchers are added to every row except REVIEWER_ADDED: accounts whose native Gerrit project
+watch matches (NEW_CHANGE→NEW_CHANGES, PATCHSET→NEW_PATCHSETS, COMMENT→ALL_COMMENTS,
+MERGED→SUBMITTED_CHANGES, ABANDONED→ABANDONED_CHANGES, evaluated by Gerrit's ProjectWatch
+without project notify sections), and accounts with a plugin subscription for that type whose
+change query, parsed as that account, matches the Change. A watcher never overrides a more
+specific reason (a mentioned watcher still gets MENTION).
+
+The actor is excluded in every case. CCs, former reviewers, email-only reviewers, stars and
+attention-set members do not independently subscribe in this MVP.
 One notification per recipient/event; a mention overrides a generic comment for that same
 review action, rather than adding a second notification. Reviewer addition and an actual
 comment are distinct actions and can independently notify. Gerrit native NotifyHandling
@@ -70,6 +78,20 @@ IDs are H2 BIGINT identity values, stable across restart. A SHA-256 fingerprint 
 project, Change, actor, full event timestamp and stable payload discriminant is unique per
 recipient. Duplicate inserts cannot reset read/archive state. Deduplication lasts only as long
 as retention; an explicitly replayed ancient event can be inserted after its tombstone expires.
+
+Schema 4 adds per-account preferences (email, on by default, and browser) and ordered
+subscriptions. Every event scans all subscriptions; index them by project if that grows. A newly
+inserted row (never a duplicate) for a recipient with email on is queued (bounded, 1000; overflow
+drops with a warning). The worker re-checks the preference, skips Gerrit's *Disabled* email
+strategy, does a fresh READ check, runs site OutgoingEmailValidationListeners and sends a plain
+text message through the plugin's own SMTP client (Apache Commons Net from the Gerrit runtime,
+`smtp*` keys, password from secure.config), independent of Gerrit's `[sendemail]`. The
+Message-ID is the event digest plus recipient. A failing channel never interrupts inbox inserts
+for the remaining recipients.
+Browser notifications are client-side: the bell compares the newest unread ID with the last one
+shown in this browser (localStorage; a missing key sets a starting point, possibly 0) and fetches
+at most 10 new unread rows. The stored ID advances only after they were shown, so a failed fetch
+is retried on the next poll.
 
 Schema 1 creates inbox fields, unique recipient/event key and account/created/read/archive
 indexes. Schema 2 adds durable inline-comment associations and a cleanup index. Idempotent DDL

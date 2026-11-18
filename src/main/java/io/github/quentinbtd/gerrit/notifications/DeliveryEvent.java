@@ -13,4 +13,5 @@ public record DeliveryEvent(
     long when,
     Set<Integer> reviewers,
     Set<Integer> added,
-    Set<Integer> mentions) {}
+    Set<Integer> mentions,
+    Set<Integer> watchers) {}

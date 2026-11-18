@@ -12,7 +12,8 @@ public final class H2Store implements NotificationStore {
     try (Statement s = connection.createStatement()) {
       s.execute("CREATE TABLE IF NOT EXISTS schema_version (version INT PRIMARY KEY)");
       try (ResultSet r = s.executeQuery("SELECT MAX(version) FROM schema_version")) {
-        if (r.next() && r.getInt(1) > 3) throw new SQLException("unsupported schema version");
+        // 5 existed only in unreleased builds (an unused preferences column): still accepted.
+        if (r.next() && r.getInt(1) > 5) throw new SQLException("unsupported schema version");
       }
       s.execute(
           "CREATE TABLE IF NOT EXISTS notifications (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY"
@@ -41,6 +42,14 @@ public final class H2Store implements NotificationStore {
           "CREATE INDEX IF NOT EXISTS inbox_account_saved ON"
               + " notifications(account_id,saved_at,id)");
       s.execute("MERGE INTO schema_version KEY(version) VALUES (3)");
+      s.execute(
+          "CREATE TABLE IF NOT EXISTS preferences (account_id INT PRIMARY KEY, email BOOLEAN NOT"
+              + " NULL, browser BOOLEAN NOT NULL)");
+      s.execute(
+          "CREATE TABLE IF NOT EXISTS subscriptions (account_id INT NOT NULL, position INT NOT"
+              + " NULL, query VARCHAR(2048) NOT NULL, types VARCHAR(256) NOT NULL, PRIMARY"
+              + " KEY(account_id,position))");
+      s.execute("MERGE INTO schema_version KEY(version) VALUES (4)");
     } catch (SQLException e) {
       connection.close();
       throw e;
@@ -48,7 +57,7 @@ public final class H2Store implements NotificationStore {
   }
 
   @Override
-  public synchronized void insert(
+  public synchronized boolean insert(
       int account,
       String event,
       String type,
@@ -71,10 +80,89 @@ public final class H2Store implements NotificationStore {
       s.setInt(6, change);
       s.setString(7, url);
       s.setLong(8, created);
-      s.executeUpdate();
+      return s.executeUpdate() == 1;
     } catch (SQLException e) {
       if (!"23505".equals(e.getSQLState())) throw e;
+      return false;
     }
+  }
+
+  @Override
+  public synchronized Preferences preferences(int account) throws SQLException {
+    var p = new Preferences();
+    try (var s =
+        connection.prepareStatement("SELECT email,browser FROM preferences WHERE account_id=?")) {
+      s.setInt(1, account);
+      try (var r = s.executeQuery()) {
+        if (r.next()) {
+          p.email = r.getBoolean(1);
+          p.browser = r.getBoolean(2);
+        }
+      }
+    }
+    var subs = subscriptions(account);
+    if (subs.containsKey(account)) p.subscriptions = subs.get(account);
+    return p;
+  }
+
+  @Override
+  public synchronized void savePreferences(int account, Preferences p) throws SQLException {
+    connection.setAutoCommit(false);
+    try (var merge =
+            connection.prepareStatement(
+                "MERGE INTO preferences(account_id,email,browser) KEY(account_id) VALUES (?,?,?)");
+        var delete = connection.prepareStatement("DELETE FROM subscriptions WHERE account_id=?");
+        var insert =
+            connection.prepareStatement(
+                "INSERT INTO subscriptions(account_id,position,query,types) VALUES (?,?,?,?)")) {
+      merge.setInt(1, account);
+      merge.setBoolean(2, p.email);
+      merge.setBoolean(3, p.browser);
+      merge.executeUpdate();
+      delete.setInt(1, account);
+      delete.executeUpdate();
+      for (int i = 0; i < p.subscriptions.size(); i++) {
+        var sub = p.subscriptions.get(i);
+        insert.setInt(1, account);
+        insert.setInt(2, i);
+        insert.setString(3, sub.query);
+        insert.setString(4, String.join(",", sub.types));
+        insert.executeUpdate();
+      }
+      connection.commit();
+    } catch (SQLException e) {
+      connection.rollback();
+      throw e;
+    } finally {
+      connection.setAutoCommit(true);
+    }
+  }
+
+  @Override
+  public synchronized Map<Integer, List<Preferences.Subscription>> subscriptions()
+      throws SQLException {
+    return subscriptions(null);
+  }
+
+  private Map<Integer, List<Preferences.Subscription>> subscriptions(Integer account)
+      throws SQLException {
+    Map<Integer, List<Preferences.Subscription>> result = new HashMap<>();
+    try (var s =
+        connection.prepareStatement(
+            "SELECT account_id,query,types FROM subscriptions"
+                + (account == null ? "" : " WHERE account_id=?")
+                + " ORDER BY account_id,position")) {
+      if (account != null) s.setInt(1, account);
+      try (var r = s.executeQuery()) {
+        while (r.next())
+          result
+              .computeIfAbsent(r.getInt(1), k -> new ArrayList<>())
+              .add(
+                  new Preferences.Subscription(
+                      r.getString(2), new ArrayList<>(List.of(r.getString(3).split(",")))));
+      }
+    }
+    return result;
   }
 
   @Override
