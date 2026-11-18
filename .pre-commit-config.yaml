@@ -1,0 +1,25 @@
+default_install_hook_types: [pre-commit, commit-msg]
+exclude: ^(build/|dist/|node_modules/|bazel-|MODULE\.bazel\.lock|mise\.lock|LICENSE)
+repos:
+  - repo: builtin
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: detect-private-key
+      - id: check-added-large-files
+  - repo: local
+    hooks:
+      - id: formatting
+        name: Repository formatting
+        language: system
+        entry: bash tools/scripts/fmt.sh --check
+        pass_filenames: false
+      - id: conventional-commit
+        name: Conventional Commit
+        language: system
+        entry: python3 -I tools/scripts/check_commit_msg.py
+        stages: [commit-msg]

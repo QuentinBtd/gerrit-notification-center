@@ -1,0 +1,83 @@
+name: CI
+on:
+  issue_comment:
+    types: [created]
+permissions: {}
+jobs:
+  request:
+    if: >-
+      github.event.issue.pull_request &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+      contains(github.event.comment.body, '/test')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      sha: ${{ steps.request.outputs.sha }}
+      repository: ${{ steps.request.outputs.repository }}
+    steps:
+      - id: request
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            // BEGIN REQUEST
+            if (Number(context.runAttempt) !== 1) return;
+            const comment = context.payload.comment;
+            if (!context.payload.issue.pull_request || !comment || comment.body.trim() !== '/test') return;
+            if (!['OWNER', 'MEMBER', 'COLLABORATOR'].includes(comment.author_association)) return;
+            const permission = await github.rest.repos.getCollaboratorPermissionLevel({...context.repo, username: comment.user.login});
+            if (!['admin', 'maintain', 'write'].includes(permission.data.permission)) return;
+            const {data: pr} = await github.rest.pulls.get({...context.repo, pull_number: context.issue.number});
+            if (pr.state !== 'open' || !pr.head.repo || !/^[a-f0-9]{40}$/.test(pr.head.sha)) return;
+            core.setOutput('sha', pr.head.sha);
+            core.setOutput('repository', pr.head.repo.full_name);
+            // END REQUEST
+  test:
+    needs: request
+    if: needs.request.outputs.sha != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        series: ['3.12', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ needs.request.outputs.repository }}
+          ref: ${{ needs.request.outputs.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: npm ci
+      - run: bash tools/scripts/fmt.sh --check && bash tools/scripts/lint.sh
+      - run: npm test && python3 -I -m unittest discover -s tools/tests -v
+      - name: Unit, acceptance and packaged build
+        env:
+          SERIES: ${{ matrix.series }}
+        run: |
+          bash tools/scripts/test.sh unit "$SERIES"
+          bash tools/scripts/test.sh acceptance "$SERIES"
+          bash tools/scripts/build.sh "$SERIES"
+  report:
+    needs: [request, test]
+    if: always() && needs.request.outputs.sha != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      statuses: write
+    steps:
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          TEST_SHA: ${{ needs.request.outputs.sha }}
+          TEST_RESULT: ${{ needs.test.result }}
+        with:
+          script: |
+            const sha = process.env.TEST_SHA;
+            if (!/^[a-f0-9]{40}$/.test(sha)) throw Error('invalid tested SHA');
+            await github.rest.repos.createCommitStatus({...context.repo, sha,
+              state: process.env.TEST_RESULT === 'success' ? 'success' : 'failure',
+              context: `notification-center/test/${context.runId}/${context.runAttempt}`,
+              description: 'Explicit /test matrix; verify this SHA is still the PR head',
+              target_url: `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`});

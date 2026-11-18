@@ -1,0 +1,42 @@
+"""notification-center Gerrit plugin.
+
+The plugin is compiled against the exact Gerrit plugin API and acceptance
+framework artifacts published on Maven Central for each supported Gerrit
+release. Select the release with --//:gerrit=3.12|3.13|3.14 (default 3.14).
+"""
+
+module(name = "notification_center")
+
+bazel_dep(name = "rules_java", version = "9.6.1")
+bazel_dep(name = "bazel_skylib", version = "1.8.2")
+
+version = use_extension("//tools/bazel:version.bzl", "plugin_version")
+use_repo(version, "notification_center_version")
+
+gerrit = use_extension("//tools/bazel:gerrit_deps.bzl", "gerrit")
+use_repo(
+    gerrit,
+    "bc_bcpg_1_80",
+    "bc_bcpg_1_84",
+    "bc_bcpkix_1_80",
+    "bc_bcpkix_1_84",
+    "bc_bcprov_1_80",
+    "bc_bcprov_1_84",
+    "bc_bcutil_1_80",
+    "bc_bcutil_1_84",
+    "gerrit_acceptance_framework_3_12",
+    "gerrit_acceptance_framework_3_13",
+    "gerrit_acceptance_framework_3_14",
+    "gerrit_plugin_api_3_12",
+    "gerrit_plugin_api_3_13",
+    "gerrit_plugin_api_3_14",
+    "gerrit_releases",
+)
+
+h2 = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_jar")
+
+h2(
+    name = "h2",
+    sha256 = "8dae62d22db8982c3dcb3826edb9c727c5d302063a67eef7d63d82de401f07d3",
+    urls = ["https://maven-central.storage-download.googleapis.com/maven2/com/h2database/h2/2.3.232/h2-2.3.232.jar"],
+)

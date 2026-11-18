@@ -1,0 +1,68 @@
+load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
+load("@notification_center_version//:version.bzl", "PLUGIN_VERSION")
+load("@rules_java//java:java_binary.bzl", "java_binary")
+load("@rules_java//java:java_library.bzl", "java_library")
+load("//tools/bazel:gerrit.bzl", "GERRIT_RELEASES", "GERRIT_SERIES")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "LICENSE",
+    "version.txt",
+])
+
+# Gerrit series the plugin is compiled and tested against.
+string_flag(
+    name = "gerrit",
+    build_setting_default = "3.14",
+    values = GERRIT_SERIES,
+)
+
+[
+    config_setting(
+        name = "gerrit_" + s.replace(".", "_"),
+        flag_values = {":gerrit": s},
+    )
+    for s in GERRIT_SERIES
+]
+
+java_library(
+    name = "notification_center_lib",
+    srcs = glob(["src/main/java/**/*.java"]),
+    resources = glob(["src/main/resources/**/*"]) + ["LICENSE"],
+    deps = [
+        ":frontend",
+        "//lib:h2",
+        "//lib:plugin_api",
+    ],
+)
+
+# The deploy JAR of this binary is the plugin. The Gerrit API is neverlink and therefore not
+# bundled; the plugin has no other runtime dependencies.
+java_binary(
+    name = "notification_center",
+    create_executable = False,
+    deploy_manifest_lines = [
+        "Gerrit-PluginName: notification-center",
+        "Gerrit-ApiType: plugin",
+        # Stop the old instance (draining its executor) before starting a new one, so two
+        # instances never hold separate in-process branch locks or metric registrations.
+        "Gerrit-ReloadMode: restart",
+        "Gerrit-Module: io.github.quentinbtd.gerrit.notifications.Module",
+        "Implementation-Title: notification-center",
+        "Implementation-Version: " + PLUGIN_VERSION,
+        "Implementation-URL: https://github.com/QuentinBtd/gerrit-notification-center",
+        "Implementation-Vendor: The notification-center Authors",
+    ] + select({
+        ":gerrit_" + s.replace(".", "_"): ["Gerrit-ApiVersion: " + GERRIT_RELEASES[s]]
+        for s in GERRIT_SERIES
+    }),
+    runtime_deps = [":notification_center_lib"],
+)
+
+# Prepared by npm run build through tools/scripts/build.sh, never committed.
+java_library(
+    name = "frontend",
+    resource_strip_prefix = "build/frontend",
+    resources = ["build/frontend/static/notification-center.js"],
+)

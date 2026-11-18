@@ -1,0 +1,5 @@
+load("//tools/bazel:tests.bzl", "acceptance_tests", "unit_tests")
+
+unit_tests(srcs = glob(["*Test.java"]))
+
+acceptance_tests(srcs = glob(["*IT.java"]))

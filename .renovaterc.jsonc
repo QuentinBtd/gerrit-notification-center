@@ -1,0 +1,14 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommits"],
+  "timezone": "Etc/UTC",
+  "schedule": ["before 6am on monday"],
+  "automerge": false,
+  "prConcurrentLimit": 6,
+  "enabledManagers": ["mise", "npm", "github-actions", "bazel-module", "bazelisk", "pre-commit"],
+  "packageRules": [
+    {"matchPackageNames": ["*"], "minimumReleaseAge": "14 days"},
+    {"matchManagers": ["github-actions"], "pinDigests": true, "semanticCommitType": "ci"},
+    {"matchUpdateTypes": ["major"], "dependencyDashboardApproval": true}
+  ]
+}

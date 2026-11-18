@@ -1,0 +1,52 @@
+min_version = "2026.9.18"
+[settings]
+lockfile = true
+[tools]
+java = "temurin-21.0.12+8.0.LTS"
+bazelisk = "1.29.0"
+node = "24.22.1"
+python = "3.13.16"
+prek = "0.5.5"
+"aqua:google/google-java-format" = "1.37.0"
+buildifier = "10.1.0"
+shellcheck = "0.11.0"
+shfmt = "3.14.1"
+actionlint = "1.7.12"
+taplo = "0.10.0"
+ruff = "0.16.10"
+"npm:release-please" = "17.11.2"
+"npm:markdownlint-cli2" = "0.23.3"
+[tasks.setup]
+run = "npm ci"
+[tasks.fmt]
+run = "bash tools/scripts/fmt.sh"
+[tasks."fmt:check"]
+run = "bash tools/scripts/fmt.sh --check"
+[tasks.lint]
+run = "bash tools/scripts/lint.sh"
+[tasks.build]
+run = "bash tools/scripts/build.sh"
+[tasks."build:matrix"]
+run = "bash tools/scripts/build.sh all"
+[tasks.test]
+run = "bash tools/scripts/test.sh unit"
+[tasks."test:integration"]
+run = "bash tools/scripts/test.sh acceptance"
+[tasks."test:matrix"]
+run = "bash tools/scripts/test.sh matrix"
+[tasks.verify]
+run = "bash tools/scripts/verify.sh"
+[tasks.package]
+run = "bash tools/scripts/package.sh"
+[tasks."hooks:install"]
+run = "prek install --install-hooks -t pre-commit -t commit-msg"
+[tasks."hooks:run"]
+run = "prek run --all-files --show-diff-on-failure"
+[tasks."release:plan"]
+run = "bash tools/scripts/release.sh plan"
+[tasks."release:verify"]
+run = "bash tools/scripts/release.sh verify"
+[tasks."release:build"]
+run = "bash tools/scripts/release.sh build"
+[tasks."release:publish"]
+run = "bash tools/scripts/release.sh publish"
