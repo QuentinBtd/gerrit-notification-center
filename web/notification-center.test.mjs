@@ -395,10 +395,10 @@ test('inbox shows 25 per page with Previous/Next over keyset cursors',async()=>{
   const {w,plugin,calls}=await harness();
   try {
     const all=Array.from({length:60},(_,i)=>({id:60-i,type:'MERGED',actor:8,project:'p',change:100+i,url:'/c/p/+/1',created_at:1}));
-    const api=plugin.restApi(),get=api.get;
+    const api=plugin.restApi(),get=api.get;let failList=false;
     api.get=async url=>{
       if(!url.includes('state=')||url.includes('count='))return get(url);
-      calls.push(['get',url]);
+      calls.push(['get',url]);if(failList)throw Error('down');
       const q=new URLSearchParams(url.split('?')[1]),before=Number(q.get('before')||Infinity),limit=Number(q.get('limit'));
       const items=all.filter(n=>n.id<before&&!n.archived_at).slice(0,limit);
       return {items,next:items.length===limit&&items.at(-1).id>1?items.at(-1).id:undefined};
@@ -423,6 +423,12 @@ test('inbox shows 25 per page with Previous/Next over keyset cursors',async()=>{
     assert.equal(range(),'26–50','an emptied last page steps back');assert.equal(rows(),25);
     btn(root,'Done').click();await settle();
     assert.equal(range(),'1–25','switching folders goes back to page 1');
+    btn(root,'Next page').click();await settle();
+    failList=true;btn(root,'Refresh').click();await settle();
+    assert.equal(range(),'','a failed page 2 shows no range');
+    assert.equal(btn(root,'Previous page').disabled,false);
+    failList=false;btn(root,'Previous page').click();await settle();
+    assert.equal(range(),'1–25','Previous recovers from a failed page');
   } finally {await w.happyDOM.close();}
 });
 
