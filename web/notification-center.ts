@@ -37,18 +37,22 @@ const subscribable = ['NEW_CHANGE', 'PATCHSET', 'COMMENT', 'MERGED', 'ABANDONED'
 // UI tab -> REST state
 const tabs: [string, string, string][] = [['all', 'Inbox', 'inbox'], ['saved', 'Saved', 'bookmark'], ['archived', 'Done', 'check'], ['settings', 'Settings', 'settings']];
 // Actor account ID -> display name, resolved once per page load via Gerrit's account API.
-const names = new Map<number, string>(), pending = new Set<number>();
+const names = new Map<number, string>(), pending = new Map<number, Promise<void>>();
 const actorName = (id: number) => names.get(id) ?? `Account ${id}`;
-// Never awaited: rows show "Account N" at once and `resolved(id)` patches them as names arrive.
-function loadNames(api: RestApi, ids: number[], resolved: (id: number) => void): void {
-  for (const id of new Set(ids)) {
-    if (names.has(id) || pending.has(id)) continue;
-    pending.add(id);
-    api.get<{display_name?: string; name?: string; username?: string}>(`/accounts/${id}`)
-      .then(a => {names.set(id, a.display_name || a.name || a.username || `Account ${id}`);},
-        () => {names.set(id, `Account ${id}`);}) // not visible or deleted: keep the ID, don't refetch
-      .finally(() => {pending.delete(id); resolved(id);});
-  }
+// Rows don't await: they show "Account N" at once and `resolved(id)` patches them as names arrive.
+// Browser alerts await the promise instead, since an OS notification can't be patched once shown.
+function loadNames(api: RestApi, ids: number[], resolved: (id: number) => void = () => {}): Promise<unknown> {
+  return Promise.all([...new Set(ids)].filter(id => !names.has(id)).map(id => {
+    let lookup = pending.get(id);
+    if (!lookup) {
+      lookup = api.get<{display_name?: string; name?: string; username?: string}>(`/accounts/${id}`)
+        .then(a => {names.set(id, a.display_name || a.name || a.username || `Account ${id}`);},
+          () => {names.set(id, `Account ${id}`);}) // not visible or deleted: keep the ID, don't refetch
+        .finally(() => pending.delete(id));
+      pending.set(id, lookup);
+    }
+    return lookup.then(() => resolved(id));
+  }));
 }
 const icon = (name: string) => {const i = document.createElement('gr-icon'); i.setAttribute('icon', name); return i;};
 function ago(ms: number): string {
@@ -195,7 +199,7 @@ class Inbox extends HTMLElement {
     if (count.latest <= last) return;
     try {
       const page = await api.get<Page>(path + '?state=unread&limit=10');
-      loadNames(api, page.items.map(n => n.actor), () => {}); // alerts use whatever is known now
+      await loadNames(api, page.items.map(n => n.actor)); // never rejects: unknown names fall back to "Account N"
       let newest = count.latest;
       for (const n of page.items.filter(n => n.id > last).reverse()) {
         newest = Math.max(newest, n.id); // may be newer than the count if it arrived in between
