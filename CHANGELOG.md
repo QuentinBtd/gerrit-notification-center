@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/QuentinBtd/gerrit-notification-center/compare/v0.2.0...v0.2.1) (2026-11-19)
+
+
+### Bug Fixes
+
+* hide the inbox range after a failed page load ([6273a61](https://github.com/QuentinBtd/gerrit-notification-center/commit/6273a61f8ead5f04b90a668f8d966b75be70be97))
+* hide the inbox range after a failed page load ([6b6cd60](https://github.com/QuentinBtd/gerrit-notification-center/commit/6b6cd60039565f7889cc1e5f3317ec185b30710f))
+
 ## [0.2.0](https://github.com/QuentinBtd/gerrit-notification-center/compare/v0.1.1...v0.2.0) (2026-11-18)
 
 
