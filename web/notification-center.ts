@@ -374,7 +374,8 @@ input[type=checkbox]{margin:0;flex:none}
       }
       if (this.rows.length || this.pageIndex) {
         const range = document.createElement('span'); range.className = 'range';
-        range.textContent = `${this.pageIndex * pageSize + 1}–${this.pageIndex * pageSize + this.rows.length}`;
+        // No rows here means a failed load: keep Previous, drop a "26–25" range.
+        range.textContent = this.rows.length ? `${this.pageIndex * pageSize + 1}–${this.pageIndex * pageSize + this.rows.length}` : '';
         const prev = this.button('chevron_left', 'Previous page', () => {this.pageIndex--; this.selected.clear(); void this.refresh();});
         prev.disabled ||= this.pageIndex === 0;
         const next = this.button('chevron_right', 'Next page', () => {

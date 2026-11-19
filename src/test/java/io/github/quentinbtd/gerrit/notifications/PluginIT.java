@@ -371,6 +371,10 @@ public class PluginIT extends LightweightPluginDaemonTest {
       userRestSession.post(PATH, bulk).assertBadRequest();
       bulk.ids = List.of(Long.MAX_VALUE - 1);
       userRestSession.post(PATH, bulk).assertNotFound();
+      bulk.action = "unarchive";
+      bulk.ids = List.of(ids.get(0), Long.MAX_VALUE - 1); // unknown IDs are skipped
+      userRestSession.post(PATH, bulk).assertNoContent();
+      assertThat(projectIds("?limit=100")).containsExactly(ids.get(0));
     } finally {
       projectOperations
           .project(project)
