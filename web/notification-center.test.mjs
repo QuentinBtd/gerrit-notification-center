@@ -400,7 +400,7 @@ test('inbox shows 25 per page with Previous/Next over keyset cursors',async()=>{
       if(!url.includes('state=')||url.includes('count='))return get(url);
       calls.push(['get',url]);
       const q=new URLSearchParams(url.split('?')[1]),before=Number(q.get('before')||Infinity),limit=Number(q.get('limit'));
-      const items=all.filter(n=>n.id<before).slice(0,limit);
+      const items=all.filter(n=>n.id<before&&!n.archived_at).slice(0,limit);
       return {items,next:items.length===limit&&items.at(-1).id>1?items.at(-1).id:undefined};
     };
     const s=w.document.createElement('notification-center-screen');s.plugin=plugin;w.document.body.append(s);await settle();
@@ -415,6 +415,12 @@ test('inbox shows 25 per page with Previous/Next over keyset cursors',async()=>{
     assert.equal(btn(root,'Next page').disabled,true);
     btn(root,'Previous page').click();await settle();
     assert.equal(range(),'26–50');assert.ok(calls.at(-1)[1].includes('before=36'));
+    btn(root,'Next page').click();await settle();
+    const fetch=api.fetch;
+    api.fetch=async(method,url,payload)=>{for(const id of payload.ids??[])all.find(n=>n.id===id).archived_at=1;return fetch(method,url,payload);};
+    root.querySelector('input[aria-label="Select all on this page"]').click();await settle();
+    btn(root,'Mark selected as done').click();await settle();await settle();
+    assert.equal(range(),'26–50','an emptied last page steps back');assert.equal(rows(),25);
     btn(root,'Done').click();await settle();
     assert.equal(range(),'1–25','switching folders goes back to page 1');
   } finally {await w.happyDOM.close();}
