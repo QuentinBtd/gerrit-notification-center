@@ -286,6 +286,26 @@ test('a failed detail fetch is retried on the next poll instead of being lost',a
   } finally {await w.happyDOM.close();}
 });
 
+test('a browser notification waits for an actor name not yet known',async()=>{
+  const shown=[];
+  const setup=w=>{
+    w.Notification=class {constructor(title,o){shown.push(o.body);} static permission='granted';};
+    w.localStorage.setItem('notification-center-last-browser-id','1');
+  };
+  const {w,plugin}=await harness({count:{unread:1,latest:3,pollSeconds:45,browser:true},setup});
+  try {
+    const api=plugin.restApi(),get=api.get;
+    api.get=async url=>{
+      if(url==='/accounts/9')return {_account_id:9,name:'Grace Hopper'};
+      if(url.includes('state=unread'))return {items:[{id:3,account_id:7,type:'MERGED',actor:9,project:'p',change:13,url:'/c/p/+/13',created_at:200}],next:null};
+      return get(url);
+    };
+    const b=w.document.createElement('notification-center-bell');b.plugin=plugin;w.document.body.append(b);await settle();
+    // An OS notification can't be patched once shown, so it must not fall back to "Account 9".
+    assert.deepEqual(shown,['Grace Hopper']);
+  } finally {await w.happyDOM.close();}
+});
+
 test('an item arriving between the count and the detail fetch is shown once',async()=>{
   const shown=[];
   const setup=w=>{
