@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2](https://github.com/QuentinBtd/gerrit-notification-center/compare/v0.2.1...v0.2.2) (2026-11-19)
+
+
+### Bug Fixes
+
+* **web:** show the actor name in browser notifications ([c510de9](https://github.com/QuentinBtd/gerrit-notification-center/commit/c510de9719bf832560e7767c784f6d6072097ce3))
+* **web:** show the actor name in browser notifications ([1da7abb](https://github.com/QuentinBtd/gerrit-notification-center/commit/1da7abb112a2234af0438b9ecc71f6fdbe160e67))
+
 ## [0.2.1](https://github.com/QuentinBtd/gerrit-notification-center/compare/v0.2.0...v0.2.1) (2026-11-19)
 
 
