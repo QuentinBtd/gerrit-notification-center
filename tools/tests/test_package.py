@@ -22,6 +22,7 @@ class PackagingTest(unittest.TestCase):
                 for name in [
                     "LICENSE",
                     "static/notification-center.js",
+                    "Documentation/about.md",
                     "org/h2/Driver.class",
                     "io/github/quentinbtd/gerrit/notifications/Module.class",
                 ]:
