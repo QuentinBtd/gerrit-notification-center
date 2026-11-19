@@ -28,6 +28,7 @@ def main(path, version, release):
             "LICENSE",
             "META-INF/licenses/H2-LICENSE.txt",
             "static/notification-center.js",
+            "Documentation/about.md",
             "org/h2/Driver.class",
             "io/github/quentinbtd/gerrit/notifications/Module.class",
         ]:
