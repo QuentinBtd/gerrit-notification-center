@@ -198,15 +198,14 @@ public class EventTest {
     var release = new CountDownLatch(1);
     var started = new CountDownLatch(1);
     try {
-      executor.execute(
-          () -> {
-            started.countDown();
-            try {
-              release.await();
-            } catch (InterruptedException e) {
-              Thread.currentThread().interrupt();
-            }
-          });
+      executor.execute(() -> {
+        started.countDown();
+        try {
+          release.await();
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+      });
       started.await(); // worker busy (simulated SMTP timeout)
       for (int i = 0; i < 5; i++) executor.execute(() -> {});
       assertEquals(1, executor.getQueue().size());
