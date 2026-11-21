@@ -3,9 +3,9 @@ min_version = "2026.9.18"
 lockfile = true
 [tools]
 java = "temurin-21.0.12+8.0.LTS"
-bazelisk = "1.29.0"
+bazelisk = "1.30.0"
 node = "24.22.2"
-python = "3.13.16"
+python = "3.15.2"
 prek = "0.5.10"
 "aqua:google/google-java-format" = "2.0.0"
 buildifier = "10.2.0"
