@@ -13,7 +13,7 @@ shellcheck = "0.11.0"
 shfmt = "3.14.1"
 actionlint = "1.7.12"
 taplo = "0.10.0"
-ruff = "0.16.10"
+ruff = "0.17.4"
 "npm:release-please" = "17.11.2"
 "npm:markdownlint-cli2" = "0.24.0"
 [tasks.setup]
