@@ -83,30 +83,29 @@ public class PluginIT extends LightweightPluginDaemonTest {
       install(
           Modules.override(new Module()).with(b -> b.bind(MailTransport.class).toInstance(MAIL)));
       DynamicSet.bind(binder(), OutgoingEmailValidationListener.class)
-          .toInstance(
-              args -> {
-                boolean rejectThis = reject;
-                String t = target;
-                if (!"notification-center".equals(args.messageClass)
-                    || t == null
-                    || !(args.headers.get("Subject") instanceof EmailHeader.StringEmailHeader h)
-                    || !h.getString().contains(t)) return;
-                String redirect = redirectTo;
-                if (redirect != null) {
-                  var rewritten = new LinkedHashMap<>(args.headers);
-                  rewritten.put("X-Policy", new EmailHeader.StringEmailHeader("rewritten"));
-                  args.headers = rewritten;
-                  args.smtpRcptTo = new HashSet<>(Set.of(Address.parse(redirect)));
-                }
-                seen.countDown();
-                var waitFor = hold;
-                try {
-                  if (waitFor != null) waitFor.await(30, TimeUnit.SECONDS);
-                } catch (InterruptedException e) {
-                  Thread.currentThread().interrupt();
-                }
-                if (rejectThis) throw new ValidationException("site policy rejects this email");
-              });
+          .toInstance(args -> {
+            boolean rejectThis = reject;
+            String t = target;
+            if (!"notification-center".equals(args.messageClass)
+                || t == null
+                || !(args.headers.get("Subject") instanceof EmailHeader.StringEmailHeader h)
+                || !h.getString().contains(t)) return;
+            String redirect = redirectTo;
+            if (redirect != null) {
+              var rewritten = new LinkedHashMap<>(args.headers);
+              rewritten.put("X-Policy", new EmailHeader.StringEmailHeader("rewritten"));
+              args.headers = rewritten;
+              args.smtpRcptTo = new HashSet<>(Set.of(Address.parse(redirect)));
+            }
+            seen.countDown();
+            var waitFor = hold;
+            try {
+              if (waitFor != null) waitFor.await(30, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+            }
+            if (rejectThis) throw new ValidationException("site policy rejects this email");
+          });
     }
   }
 
@@ -135,11 +134,10 @@ public class PluginIT extends LightweightPluginDaemonTest {
 
   private List<TestModule.FakeTransport.Sent> mails(String email, String reason) {
     return TestModule.MAIL.sent.stream()
-        .filter(
-            m ->
-                m.to().email().equals(email)
-                    && m.body().startsWith(reason + " by ")
-                    && m.body().contains(" on " + project.get() + " #"))
+        .filter(m ->
+            m.to().email().equals(email)
+                && m.body().startsWith(reason + " by ")
+                && m.body().contains(" on " + project.get() + " #"))
         .toList();
   }
 

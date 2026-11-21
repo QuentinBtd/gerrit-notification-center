@@ -38,11 +38,8 @@ public final class GerritListeners
     this.router = router;
     this.store = store;
     resolver =
-        new RecipientResolver(
-            email ->
-                emails.getAccountFor(email).stream()
-                    .map(Account.Id::get)
-                    .collect(Collectors.toSet()));
+        new RecipientResolver(email ->
+            emails.getAccountFor(email).stream().map(Account.Id::get).collect(Collectors.toSet()));
   }
 
   @Override
