@@ -4,7 +4,7 @@ lockfile = true
 [tools]
 java = "temurin-21.0.12+8.0.LTS"
 bazelisk = "1.29.0"
-node = "24.22.1"
+node = "24.22.2"
 python = "3.13.16"
 prek = "0.5.10"
 "aqua:google/google-java-format" = "1.37.0"
