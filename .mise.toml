@@ -15,7 +15,7 @@ actionlint = "1.7.12"
 taplo = "0.10.0"
 ruff = "0.16.10"
 "npm:release-please" = "17.11.2"
-"npm:markdownlint-cli2" = "0.23.3"
+"npm:markdownlint-cli2" = "0.24.0"
 [tasks.setup]
 run = "npm ci"
 [tasks.fmt]
