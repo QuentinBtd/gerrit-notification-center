@@ -38,44 +38,41 @@ public class MailTest {
     try (var server = new ServerSocket(0)) {
       var log = new CompletableFuture<List<String>>();
       var thread =
-          new Thread(
-              () -> {
-                List<String> lines = new ArrayList<>();
-                try (var socket = server.accept();
-                    var in =
-                        new BufferedReader(
-                            new InputStreamReader(
-                                socket.getInputStream(), StandardCharsets.UTF_8));
-                    var out =
-                        new PrintWriter(
-                            new OutputStreamWriter(
-                                socket.getOutputStream(), StandardCharsets.UTF_8))) {
-                  out.print("220 test\r\n");
-                  out.flush();
-                  boolean data = false;
-                  for (String line; (line = in.readLine()) != null; ) {
-                    lines.add(line);
-                    if (data) {
-                      if (line.equals(".")) {
-                        data = false;
-                        out.print("250 queued\r\n");
-                      }
-                    } else if (line.startsWith("EHLO")) out.print("250-test\r\n250 OK\r\n");
-                    else if (line.equals("DATA")) {
-                      data = true;
-                      out.print("354 go\r\n");
-                    } else if (line.equals("QUIT")) {
-                      out.print("221 bye\r\n");
-                      out.flush();
-                      break;
-                    } else out.print("250 OK\r\n");
-                    out.flush();
+          new Thread(() -> {
+            List<String> lines = new ArrayList<>();
+            try (var socket = server.accept();
+                var in =
+                    new BufferedReader(
+                        new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+                var out =
+                    new PrintWriter(
+                        new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8))) {
+              out.print("220 test\r\n");
+              out.flush();
+              boolean data = false;
+              for (String line; (line = in.readLine()) != null; ) {
+                lines.add(line);
+                if (data) {
+                  if (line.equals(".")) {
+                    data = false;
+                    out.print("250 queued\r\n");
                   }
-                } catch (IOException e) {
-                  log.completeExceptionally(e);
-                }
-                log.complete(lines);
-              });
+                } else if (line.startsWith("EHLO")) out.print("250-test\r\n250 OK\r\n");
+                else if (line.equals("DATA")) {
+                  data = true;
+                  out.print("354 go\r\n");
+                } else if (line.equals("QUIT")) {
+                  out.print("221 bye\r\n");
+                  out.flush();
+                  break;
+                } else out.print("250 OK\r\n");
+                out.flush();
+              }
+            } catch (IOException e) {
+              log.completeExceptionally(e);
+            }
+            log.complete(lines);
+          });
       thread.start();
       new SmtpTransport("localhost", server.getLocalPort(), "none", null, null, 5_000)
           .send(
@@ -100,28 +97,26 @@ public class MailTest {
     try (var server = new ServerSocket(0)) {
       var accepted = new ArrayList<java.net.Socket>(); // keep the connection open, say nothing
       var thread =
-          new Thread(
-              () -> {
-                try {
-                  accepted.add(server.accept());
-                } catch (IOException e) {
-                  // test ends
-                }
-              });
+          new Thread(() -> {
+            try {
+              accepted.add(server.accept());
+            } catch (IOException e) {
+              // test ends
+            }
+          });
       thread.start();
       var transport = new SmtpTransport("localhost", server.getLocalPort(), "ssl", null, null, 300);
       var attempt =
-          CompletableFuture.runAsync(
-              () -> {
-                try {
-                  transport.send(
-                      Address.parse("gerrit@example.com"),
-                      List.of(Address.parse("ada@example.com")),
-                      "x");
-                } catch (IOException e) {
-                  throw new UncheckedIOException(e);
-                }
-              });
+          CompletableFuture.runAsync(() -> {
+            try {
+              transport.send(
+                  Address.parse("gerrit@example.com"),
+                  List.of(Address.parse("ada@example.com")),
+                  "x");
+            } catch (IOException e) {
+              throw new UncheckedIOException(e);
+            }
+          });
       try {
         attempt.get(5, TimeUnit.SECONDS); // TimeoutException here means the worker would hang
         fail("expected the stalled handshake to fail");

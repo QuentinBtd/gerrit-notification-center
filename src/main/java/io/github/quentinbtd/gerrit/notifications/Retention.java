@@ -20,12 +20,11 @@ public final class Retention implements LifecycleListener {
   @Override
   public void start() {
     executor =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> {
-              var t = new Thread(r, "notification-center-retention");
-              t.setDaemon(true);
-              return t;
-            });
+        Executors.newSingleThreadScheduledExecutor(r -> {
+          var t = new Thread(r, "notification-center-retention");
+          t.setDaemon(true);
+          return t;
+        });
     executor.scheduleWithFixedDelay(
         () -> {
           try {
