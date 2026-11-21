@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/QuentinBtd/gerrit-notification-center/compare/v0.2.2...v0.2.3) (2026-11-21)
+
+
+### Miscellaneous
+
+* release 0.2.3 ([4e1f13b](https://github.com/QuentinBtd/gerrit-notification-center/commit/4e1f13bc867222c01ddc8b69e4d80fb48f750e8a))
+
 ## [0.2.2](https://github.com/QuentinBtd/gerrit-notification-center/compare/v0.2.1...v0.2.2) (2026-11-19)
 
 
